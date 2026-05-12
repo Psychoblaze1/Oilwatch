@@ -2,9 +2,16 @@
 // AI right-side panel — chat with Claude (live, streamed)
 // ============================================================
 function AIPanel({ onClose, focus, context }) {
+  // Seed initial chat from live fleet so refs stay valid as data evolves.
+  const sites = window.SITES.map(s => s.name.replace(/(Flight Academy|FBO|Charter|Aero Service|Flying Club|Bush Operators)/, "").trim()).filter(Boolean).slice(0, 4).join(", ");
+  const worst = window.ASSETS.slice().sort((a, b) => a.health - b.health)[0];
   const [messages, setMessages] = React.useState([
-    { role: "system", text: "Grounded on West Refinery, Permian, Gulf, Houston, Anchorage, Bakken · 1,243 samples · 232 assets." },
-    { role: "ai", text: "Morning Devon. I noticed three converging trends overnight — want a recap, or jump straight into RECYCLE C-201?", time: "06:14" },
+    { role: "system", text: `Grounded on ${sites}, +2 more · ${window.SAMPLES.length} samples · ${window.ASSETS.length} engines.` },
+    { role: "ai",
+      text: worst
+        ? `Morning Devon. Overnight pass surfaced ${window.ASSETS.filter(a => a.health < 50).length} engines trending — want a recap, or jump straight into ${worst.name.split(" · ")[0]} (${worst.tag}, ${worst.classLabel})?`
+        : "Morning Devon. Fleet looks clean across the board overnight — anything you want me to dig into?",
+      time: "06:14" },
   ]);
   const [input, setInput] = React.useState("");
   const [pending, setPending] = React.useState(false);

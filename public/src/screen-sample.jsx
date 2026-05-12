@@ -89,19 +89,19 @@ function ScreenSample({ sampleId, back, openAI, role }) {
             </div>
             <div className="card-body">
               <div style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--ink)" }}>
-                <b>Root cause likely water-accelerated bearing wear.</b> Iron ({results.find(r => r.code === "Fe")?.value} ppm) and copper ({results.find(r => r.code === "Cu")?.value} ppm) co-elevation, paired with water at {results.find(r => r.code === "H2O")?.value} ppm and a {asset.classLabel.toLowerCase().replace(/s$/, "")}-typical viscosity drop, matches a pattern observed in <b>3 historical failures</b> on this site. Estimated remaining useful life <b>{asset.rulDays} days</b> at current trend slope.
+                <b>Likely cam / lifter wear.</b> Iron ({results.find(r => r.code === "Fe")?.value} ppm) and chromium ({results.find(r => r.code === "Cr")?.value} ppm) are running together — the classic Lycoming corrosion-driven cam pattern, often tied to low recent activity. Aluminum at {results.find(r => r.code === "Al")?.value} ppm and silicon at {results.find(r => r.code === "Si")?.value} ppm round out the picture. Matches <b>3 historical patterns</b> on this engine class. Recommend a filter cut at the next change and a follow-up at 10 hours rather than the usual interval. Estimated time to inspection threshold: <b>{asset.rulDays} hours</b>.
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 14 }}>
                 <div style={{ padding: "10px 12px", background: "var(--bg-sunken)", borderRadius: 6 }}>
                   <div className="mono" style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: 0.08 }}>SUGGESTED ACTION</div>
-                  <div style={{ fontSize: 12.5, marginTop: 4 }}>Re-sample within 72h</div>
+                  <div style={{ fontSize: 12.5, marginTop: 4 }}>Cut oil filter · resample 10h</div>
                 </div>
                 <div style={{ padding: "10px 12px", background: "var(--bg-sunken)", borderRadius: 6 }}>
                   <div className="mono" style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: 0.08 }}>INSPECT</div>
-                  <div style={{ fontSize: 12.5, marginTop: 4 }}>Coupling alignment</div>
+                  <div style={{ fontSize: 12.5, marginTop: 4 }}>Borescope cam &amp; lifters</div>
                 </div>
                 <div style={{ padding: "10px 12px", background: "var(--bg-sunken)", borderRadius: 6 }}>
-                  <div className="mono" style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: 0.08 }}>RUL ESTIMATE</div>
+                  <div className="mono" style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: 0.08 }}>EST. TIL ACTION</div>
                   <RULBar days={asset.rulDays} total={120} />
                 </div>
               </div>
@@ -159,7 +159,7 @@ function ScreenSample({ sampleId, back, openAI, role }) {
             <div className="muted">Site</div><div>{sample.siteName}</div>
             <div className="muted">Received</div><div className="mono">{window.fmtDate(sample.receivedAt)}</div>
             <div className="muted">Analyst</div><div>{sample.analyst}</div>
-            <div className="muted">Method panel</div><div>OIL-STD-22 (Industrial)</div>
+            <div className="muted">Method panel</div><div>AVI-STD-12 (Piston Aircraft)</div>
           </div>
         </div>
         <div className="card">
@@ -168,19 +168,19 @@ function ScreenSample({ sampleId, back, openAI, role }) {
             <div className="muted">OEM</div><div>{asset.oem}</div>
             <div className="muted">Class</div><div>{asset.classLabel}</div>
             <div className="muted">Criticality</div><div><Tag tone="accent">Class {asset.criticality}</Tag></div>
-            <div className="muted">Run hours</div><div className="mono">{asset.runHours.toLocaleString()} h</div>
+            <div className="muted">Engine hours (TSMOH)</div><div className="mono">{asset.runHours.toLocaleString()} h</div>
             <div className="muted">Oil</div><div>{asset.oil.brand} · {asset.oil.name}</div>
-            <div className="muted">ISO grade</div><div className="mono">{asset.oil.iso}</div>
+            <div className="muted">SAE grade</div><div className="mono">{asset.oil.iso}</div>
           </div>
         </div>
         <div className="card">
           <div className="card-head"><span className="card-title">Workflow</span></div>
           <div className="card-body" style={{ fontSize: 12.5 }}>
             {[
-              { s: "Collected",  t: "Apr 28 · 09:14",  who: "T. Reyes (TECH)" },
-              { s: "Received",   t: "Apr 29 · 13:02",  who: "Lab intake" },
-              { s: "Tested",     t: "Apr 30 · 08:47",  who: "Spec lab" },
-              { s: "QC review",  t: "May 01 · 14:18",  who: sample.analyst + " (ANALYST)" },
+              { s: "Drawn at oil change", t: "Apr 28 · 09:14",  who: "T. Reyes (A&P)" },
+              { s: "Mail-in received",    t: "Apr 29 · 13:02",  who: "Lab intake" },
+              { s: "ICP-OES + GC + Karl Fischer", t: "Apr 30 · 08:47",  who: "Spec lab" },
+              { s: "QC review",           t: "May 01 · 14:18",  who: sample.analyst + " (ANALYST)" },
             ].map((step, i) => (
               <div key={i} style={{ display: "grid", gridTemplateColumns: "14px 1fr", gap: 10, padding: "6px 0", borderBottom: i < 3 ? "1px solid var(--line)" : "none" }}>
                 <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent)", marginTop: 6 }}/>

@@ -8,10 +8,10 @@ function ScreenAsset({ assetId, back, focus, openAI }) {
   const samples = window.SAMPLES.filter(s => s.assetId === asset.id).slice(0, 8);
 
   const params = [
-    { id: "Fe",     label: "Iron",  unit: "ppm" },
-    { id: "Cu",     label: "Copper", unit: "ppm" },
-    { id: "Visc40", label: "Viscosity @ 40°C", unit: "cSt" },
-    { id: "H2O",    label: "Water", unit: "ppm" },
+    { id: "Fe",      label: "Iron",        unit: "ppm" },
+    { id: "Cr",      label: "Chromium",    unit: "ppm" },
+    { id: "Al",      label: "Aluminum",    unit: "ppm" },
+    { id: "Visc100", label: "Visc @100°C", unit: "cSt" },
   ];
 
   return (
@@ -79,7 +79,7 @@ function ScreenAsset({ assetId, back, focus, openAI }) {
           <div style={{ display: "flex", gap: 14, marginTop: 12, fontSize: 11, color: "var(--ink-3)" }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               <Icon name="ai" size={11} style={{ color: "var(--accent)" }}/>
-              <span><b style={{ color: "var(--ink-2)" }}>Claude:</b> Trend slope +1.8 ppm/sample (3σ above 90-day median). Cross with viscosity drop {param === "Visc40" ? "(this view)" : ""} suggests fluid degradation, not pure wear.</span>
+              <span><b style={{ color: "var(--ink-2)" }}>Claude:</b> Trend slope +1.8 ppm/sample (3σ above 90-day median). Iron + chromium running together is the classic Lycoming cam/lifter signature — recommend cutting the next oil filter and tightening the sample cadence to 10h.</span>
             </span>
           </div>
         </div>

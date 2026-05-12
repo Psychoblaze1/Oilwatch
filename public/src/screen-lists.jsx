@@ -213,16 +213,19 @@ function ScreenAlarms({ siteFilter, focus }) {
 
 function ScreenRef() {
   const groups = [
-    { title: "Oil Manufacturers", items: window.OILS.map(o => ({ name: o.name, sub: `${o.brand} · ${o.iso}` })) },
+    { title: "Aviation Oils", items: window.OILS.map(o => ({ name: o.name, sub: `${o.brand} · ${o.iso}` })) },
     { title: "Parameters", items: [
-      { name: "Iron (Fe)", sub: "ASTM D5185 · ICP-OES · ferrous wear" },
-      { name: "Copper (Cu)", sub: "ASTM D5185 · bronze bearing wear" },
-      { name: "Water content", sub: "ASTM D6304 · Karl Fischer titration" },
-      { name: "Viscosity @ 40°C", sub: "ASTM D445 · kinematic viscosity, cSt" },
-      { name: "Acid Number (TAN)", sub: "ASTM D664 · oxidation indicator" },
-      { name: "Particle Count", sub: "ISO 4406 · cleanliness code" },
+      { name: "Iron (Fe)",            sub: "ASTM D5185 · ICP-OES · cylinders, cam, lifters" },
+      { name: "Chromium (Cr)",        sub: "ASTM D5185 · piston rings, valves" },
+      { name: "Aluminum (Al)",        sub: "ASTM D5185 · pistons, oil pump body" },
+      { name: "Copper (Cu)",          sub: "ASTM D5185 · bronze bushings, oil cooler" },
+      { name: "Lead (Pb)",            sub: "ASTM D5185 · 100LL avgas residue · 4-7k ppm normal" },
+      { name: "Silicon (Si)",         sub: "ASTM D5185 · airborne dirt / induction leak" },
+      { name: "Water (H₂O)",          sub: "ASTM D6304 · Karl Fischer · short-flight condensation" },
+      { name: "Viscosity @ 100°C",    sub: "ASTM D445 · SAE 50 ≈ 19 cSt · drop = fuel dilution" },
+      { name: "Fuel Dilution",        sub: "GC · rich operation / mag check indicator" },
     ]},
-    { title: "Equipment Defaults", items: window.ASSET_CLASSES.map(c => ({ name: c.label, sub: "Standard limit set · 90-day cadence" })) },
+    { title: "Engine Defaults", items: window.ASSET_CLASSES.map(c => ({ name: c.label, sub: "Standard limit set · 25–50 hr drain cadence" })) },
   ];
   return (
     <div className="page">

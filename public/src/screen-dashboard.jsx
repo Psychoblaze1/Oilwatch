@@ -13,12 +13,17 @@ function ScreenDashboard({ siteFilter, setRoute, focus, openAI }) {
   const inQc = samples.filter(s => s.status === "QC").length;
   const pub24 = samples.filter(s => s.status === "PUBLISHED" && (Date.now() - s.receivedAt) < 1000 * 60 * 60 * 48).length;
 
+  // Worst-health asset drives the daily briefing card so it stays
+  // truthful even if the underlying dataset changes.
+  const worst = assets.slice().sort((a, b) => a.health - b.health)[0];
+  const recovered = assets.filter(a => a.health >= 75).length;
+
   return (
     <div className="page">
       <div className="page-header">
         <div>
           <h1 className="page-title">Fleet Overview</h1>
-          <div className="page-sub">{sites.length} {sites.length === 1 ? "site" : "sites"} · {total} monitored assets · 28-day window</div>
+          <div className="page-sub">{sites.length} {sites.length === 1 ? "operator" : "operators"} · {total} monitored engines · 28-day window</div>
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost" onClick={() => window.exportPDF("oilwatch-fleet-overview.pdf")}><Icon name="download" size={14}/> Export PDF</button>
@@ -30,24 +35,24 @@ function ScreenDashboard({ siteFilter, setRoute, focus, openAI }) {
       {/* KPIs */}
       <div className="kpi-row">
         <div className="kpi">
-          <div className="kpi-label">Total Assets</div>
+          <div className="kpi-label">Total Engines</div>
           <div className="kpi-value">{total}</div>
-          <div className="kpi-meta"><span className="delta-flat">stable</span> · {sites.length} sites</div>
+          <div className="kpi-meta"><span className="delta-flat">stable</span> · {sites.length} operators</div>
         </div>
         <div className="kpi">
-          <div className="kpi-label">Healthy (ISO 1)</div>
+          <div className="kpi-label">Normal</div>
           <div className="kpi-value" style={{ color: "var(--ok)" }}>{counts[1]}</div>
-          <div className="kpi-meta"><span className="delta-dn"><Icon name="arrow-dn" size={11}/>2</span> vs last week · {Math.round(counts[1]/total*100)}%</div>
+          <div className="kpi-meta"><span className="delta-dn"><Icon name="arrow-dn" size={11}/>2</span> vs last week · {total ? Math.round(counts[1]/total*100) : 0}%</div>
         </div>
         <div className="kpi">
-          <div className="kpi-label">Caution (ISO 2)</div>
+          <div className="kpi-label">Caution</div>
           <div className="kpi-value" style={{ color: "var(--warn)" }}>{counts[2]}</div>
           <div className="kpi-meta"><span className="delta-up"><Icon name="arrow-up" size={11}/>4</span> vs last week</div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Critical / Severe</div>
           <div className="kpi-value" style={{ color: "var(--crit)" }}>{counts[3] + counts[4]}</div>
-          <div className="kpi-meta"><span className="delta-up"><Icon name="arrow-up" size={11}/>1</span> overdue intervention</div>
+          <div className="kpi-meta"><span className="delta-up"><Icon name="arrow-up" size={11}/>1</span> overdue cam-scope</div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Samples in QC</div>
@@ -68,11 +73,15 @@ function ScreenDashboard({ siteFilter, setRoute, focus, openAI }) {
               <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)" }}>· 06:14 local</span>
             </div>
             <div style={{ fontSize: 14, color: "var(--ink)", lineHeight: 1.55, maxWidth: 880 }}>
-              Three assets at <b>Permian PX-02</b> show converging wear-metal trends. <b>RECYCLE C-201</b> is your highest-impact intervention — Fe and Cu both crossed 2σ above 90-day baseline, and historical pattern matches a bearing failure mode that surfaced on <b>GAS BOOST C-305</b> 14 months ago. Estimated RUL <b>22 days</b>. Suggested action: pull supplemental sample within 72h and inspect coupling alignment.
+              {worst ? (<>
+                <b>{worst.name}</b> ({worst.tag}, {worst.siteName}) is your highest-impact follow-up — iron and chromium are running together, consistent with the classic <b>{worst.classLabel.toLowerCase()}</b> cam/lifter wear pattern most often tied to low recent utilization. Estimated time-to-inspection threshold <b>{worst.rulDays} hours</b>. Suggested action: cut the oil filter at next change, borescope the cam, and resample at 10h instead of the usual interval.
+              </>) : (<>
+                Fleet is mostly clean — no engines below 50 score in the current scope. Hold cadence and revisit the daily briefing tomorrow.
+              </>)}
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button className="btn btn-sm" onClick={() => focus("A-1015")}>Open RECYCLE C-201</button>
-              <button className="btn btn-sm btn-ghost">Schedule sample</button>
+              {worst && <button className="btn btn-sm" onClick={() => focus(worst.id)}>Open {worst.name.split(" · ")[0]}</button>}
+              <button className="btn btn-sm btn-ghost">Schedule resample</button>
               <button className="btn btn-sm btn-ghost" onClick={openAI}>Ask follow-up →</button>
             </div>
           </div>
@@ -84,7 +93,7 @@ function ScreenDashboard({ siteFilter, setRoute, focus, openAI }) {
         <div className="card">
           <div className="card-head">
             <span className="card-title">Fleet Heatmap</span>
-            <span className="card-sub mono">SITES × ASSET CLASS · cell = single asset</span>
+            <span className="card-sub mono">OPERATORS × ENGINE CLASS · cell = one engine</span>
           </div>
           <div className="card-body no-pad">
             <FleetHeatmap sites={sites} assets={assets} onPick={(a) => focus(a.id)} />

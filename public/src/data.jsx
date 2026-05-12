@@ -1,33 +1,38 @@
 // ============================================================
-// Mock domain data for Oilwatch
+// Mock domain data for Oilwatch — piston aviation oil analysis
+// (Lycoming / Continental / Rotax fleets, 100LL avgas chemistry,
+//  cam/lifter wear patterns, mail-in sample lifecycle.)
 // ============================================================
 
+// Sites = customer operators that send samples to the lab.
 const SITES = [
-  { id: "wr-01", code: "WR-01", name: "West Refinery",       region: "TX, USA",   assets: 38, samples28d: 412 },
-  { id: "px-02", code: "PX-02", name: "Permian Field Ops",   region: "NM, USA",   assets: 71, samples28d: 689 },
-  { id: "gt-04", code: "GT-04", name: "Gulf Terminal",       region: "LA, USA",   assets: 22, samples28d: 198 },
-  { id: "hp-07", code: "HP-07", name: "Houston Petrochem",   region: "TX, USA",   assets: 54, samples28d: 537 },
-  { id: "an-09", code: "AN-09", name: "Anchorage North LNG", region: "AK, USA",   assets: 18, samples28d: 142 },
-  { id: "bk-11", code: "BK-11", name: "Bakken Compressors",  region: "ND, USA",   assets: 29, samples28d: 251 },
+  { id: "ctn-01", code: "KAPA", name: "Centennial Flight Academy", region: "Denver, CO",   assets: 38, samples28d: 412 },
+  { id: "sun-02", code: "KSUN", name: "Sun Valley FBO",            region: "Hailey, ID",   assets: 22, samples28d: 198 },
+  { id: "hef-03", code: "KHEF", name: "Cirrus East Charter",       region: "Manassas, VA", assets: 28, samples28d: 251 },
+  { id: "ict-04", code: "KICT", name: "Beechwood Aero Service",    region: "Wichita, KS",  assets: 54, samples28d: 537 },
+  { id: "hwd-05", code: "KHWD", name: "Pacific Coast Flying Club", region: "Hayward, CA",  assets: 44, samples28d: 489 },
+  { id: "afa-06", code: "PAFA", name: "Alaska Bush Operators",     region: "Fairbanks, AK",assets: 18, samples28d: 142 },
 ];
 
+// Asset class = piston engine family. Stays internally consistent
+// with asset.class throughout the app (heatmap, filters, rules scope).
 const ASSET_CLASSES = [
-  { id: "pump",    label: "Pumps",          icon: "pump" },
-  { id: "comp",    label: "Compressors",    icon: "comp" },
-  { id: "turb",    label: "Turbines",       icon: "turb" },
-  { id: "gear",    label: "Gearboxes",      icon: "gear" },
-  { id: "hyd",     label: "Hydraulics",     icon: "hyd" },
-  { id: "trans",   label: "Transformers",   icon: "trans" },
+  { id: "lyco4",  label: "Lycoming 4-cyl", icon: "engine" },
+  { id: "lyco6",  label: "Lycoming 6-cyl", icon: "engine" },
+  { id: "conto4", label: "Continental 4",  icon: "engine" },
+  { id: "conto6", label: "Continental 6",  icon: "engine" },
+  { id: "rotax",  label: "Rotax",          icon: "engine" },
+  { id: "radial", label: "Radial",         icon: "engine" },
 ];
 
 const ROLES = [
-  { id: "TECH",    label: "Technician",  hint: "Collect & log" },
+  { id: "TECH",    label: "Technician",  hint: "Receive & log" },
   { id: "ANALYST", label: "Analyst",     hint: "QC & publish"  },
   { id: "MANAGER", label: "Manager",     hint: "Review & sign-off" },
   { id: "ADMIN",   label: "Admin",       hint: "Config & access" },
 ];
 
-// ISO condition codes
+// Condition codes (score → 1..4) — same scale as before.
 const COND = {
   1: { label: "Normal",   short: "OK",   color: "ok",   range: "75–100", icon: "●" },
   2: { label: "Caution",  short: "WARN", color: "warn", range: "50–74",  icon: "●" },
@@ -35,7 +40,6 @@ const COND = {
   4: { label: "Severe",   short: "SEV",  color: "sev",  range: "0–24",   icon: "●" },
 };
 
-// Score → ISO code
 function scoreToCode(s) {
   if (s >= 75) return 1;
   if (s >= 50) return 2;
@@ -43,7 +47,6 @@ function scoreToCode(s) {
   return 4;
 }
 
-// Stable RNG so refresh doesn't reshuffle
 function mulberry32(seed) {
   return function () {
     let t = (seed += 0x6D2B79F5);
@@ -53,26 +56,58 @@ function mulberry32(seed) {
   };
 }
 
+// Aircraft pool per engine class. Format: "<N-number> · <Airframe>".
 const ASSET_NAMES = {
-  pump:  ["Crude Charge P-101","Booster P-204","Reflux P-318","Cooling P-422","Loading P-507","Recirc P-612"],
-  comp:  ["Recycle C-201","Gas Boost C-305","Inter-stage C-412","Vapor Recovery C-509","Air C-118","Sales C-707"],
-  turb:  ["Main GT-1","Drive Turbine T-302","Steam T-411","Exhaust T-508","Aux T-119"],
-  gear:  ["Mill Drive G-220","Conveyor G-318","Mixer G-405","Aerator G-511","Crane G-622"],
-  hyd:   ["Press H-110","Actuator H-225","Lift H-330","Servo H-445","Valve H-518"],
-  trans: ["Transformer TX-301","Transformer TX-402","Transformer TX-510","Transformer TX-604"],
+  lyco4: [
+    "N7251X · Cessna 172S","N9412A · Piper PA-28-180","N3308G · Diamond DA40",
+    "N5572K · Citabria 7ECA","N8841J · Maule M-7-235","N6620B · American Champion Decathlon",
+  ],
+  lyco6: [
+    "N4419C · Cirrus SR22","N7785M · Mooney M20TN","N2207V · Piper Saratoga",
+    "N5530W · Beechcraft A36 Bonanza","N9912T · Piper Cherokee Six 300","N1147H · Mooney M20R",
+  ],
+  conto4: [
+    "N3015F · Cessna 152","N6608R · Cirrus SR20","N4421P · Mooney M20E",
+    "N7780Q · Diamond DA20-C1","N1183Y · Grumman AA-5A Cheetah","N5519N · Cessna 150",
+  ],
+  conto6: [
+    "N3458S · Beechcraft V35 Bonanza","N7790T · Cessna T210M","N1234U · Piper Twin Comanche",
+    "N5687V · Beechcraft Baron 58","N9012W · Cessna 310R","N4451B · Cessna P210N",
+  ],
+  rotax: [
+    "N7716X · Diamond DA20-A1","N3320Y · Tecnam P2008","N4408Z · CTLS Flight Design",
+    "N9981A · ICON A5","N5527B · Aeroprakt A22","N6620C · Pipistrel Sinus",
+  ],
+  radial: [
+    "N1198CC · Cessna 195","N5512DD · DC-3","N9022EE · T-28B Trojan","N3340FF · Antonov An-2",
+  ],
 };
 
-const OEMS = ["Sulzer","Flowserve","Atlas Copco","Siemens Energy","GE Vernova","Voith","Bosch Rexroth","ABB"];
+// Engine model "dash numbers" used as asset.tag.
+const ENGINE_TAGS = {
+  lyco4:  ["O-320-D3G","O-360-A1A","IO-360-L2A","IO-320-A2A","O-320-H2AD","IO-360-M1A"],
+  lyco6:  ["IO-540-AB1A5","IO-540-K1A5","TIO-540-AE2A","IO-580-B1A","IO-540-C4B5"],
+  conto4: ["O-200-A","IO-240-B","IO-360-ES","O-200-D"],
+  conto6: ["IO-470-N","IO-520-D","IO-550-G","TSIO-550-K","IO-550-N"],
+  rotax:  ["912 ULS-2","912 iS Sport","914 UL","915 iSc3 A"],
+  radial: ["R-985-AN-14B","R-1340-AN-1","R-2800-CB16"],
+};
+
+const OEMS = ["Lycoming","Continental Motors","Rotax","Pratt & Whitney","Curtiss-Wright","Jabiru"];
+
+// Aviation oils. Keep `iso` field name for backward compat with screen
+// JSX; it carries the SAE grade label.
 const OILS = [
-  { brand: "Mobil",   name: "Mobil DTE 10 Excel 46",  iso: "ISO VG 46" },
-  { brand: "Shell",   name: "Shell Tellus S2 V 68",   iso: "ISO VG 68" },
-  { brand: "Castrol", name: "Castrol Hyspin AWH-M 46",iso: "ISO VG 46" },
-  { brand: "Chevron", name: "Chevron Rando HDZ 32",   iso: "ISO VG 32" },
-  { brand: "Mobil",   name: "Mobilgear 600 XP 220",   iso: "ISO VG 220" },
-  { brand: "Shell",   name: "Shell Turbo T 32",       iso: "ISO VG 32" },
+  { brand: "AeroShell",  name: "AeroShell W100",            iso: "SAE 50" },
+  { brand: "AeroShell",  name: "AeroShell W100 Plus",       iso: "SAE 50" },
+  { brand: "AeroShell",  name: "AeroShell W80",             iso: "SAE 40" },
+  { brand: "AeroShell",  name: "AeroShell 15W-50",          iso: "SAE 15W-50" },
+  { brand: "Phillips 66",name: "Phillips X/C 20W-50",       iso: "SAE 20W-50" },
+  { brand: "ExxonMobil", name: "Exxon Elite 20W-50",        iso: "SAE 20W-50" },
+  { brand: "AeroShell",  name: "AeroShell Sport Plus 4",    iso: "SAE 10W-40" },
 ];
 
-// Build assets
+// Build the engine fleet.
 const ASSETS = [];
 {
   const rng = mulberry32(7);
@@ -81,9 +116,9 @@ const ASSETS = [];
     const count = Math.max(6, Math.min(14, Math.floor(site.assets / 4)));
     for (let i = 0; i < count; i++) {
       const cls = ASSET_CLASSES[Math.floor(rng() * ASSET_CLASSES.length)];
-      const names = ASSET_NAMES[cls.id];
-      const baseName = names[Math.floor(rng() * names.length)];
-      // Health score skews healthy with a tail of trouble
+      const aircraft = ASSET_NAMES[cls.id];
+      const baseName = aircraft[Math.floor(rng() * aircraft.length)];
+      const tag = ENGINE_TAGS[cls.id][Math.floor(rng() * ENGINE_TAGS[cls.id].length)];
       const r = rng();
       let score;
       if (r < 0.55)      score = 78 + Math.floor(rng() * 20);
@@ -93,15 +128,19 @@ const ASSETS = [];
 
       ASSETS.push({
         id: "A-" + (id++),
-        tag: `${cls.id.toUpperCase()}-${100 + i + Math.floor(rng()*40)}`,
-        name: baseName,
+        tag,                                     // engine model dash-number
+        name: baseName,                          // tail # + airframe
         site: site.id,
         siteName: site.name,
         class: cls.id,
         classLabel: cls.label,
-        oem: OEMS[Math.floor(rng() * OEMS.length)],
-        oil: OILS[Math.floor(rng() * OILS.length)],
-        runHours: 800 + Math.floor(rng() * 32000),
+        oem: cls.id.startsWith("lyco") ? "Lycoming"
+           : cls.id.startsWith("conto") ? "Continental Motors"
+           : cls.id === "rotax" ? "Rotax"
+           : cls.id === "radial" ? "Pratt & Whitney"
+           : OEMS[Math.floor(rng() * OEMS.length)],
+        oil: pickOilForClass(cls.id, rng),
+        runHours: 80 + Math.floor(rng() * 2400),       // hours since major overhaul (TSMOH)
         criticality: rng() < 0.25 ? "A" : (rng() < 0.6 ? "B" : "C"),
         health: score,
         code: scoreToCode(score),
@@ -114,25 +153,37 @@ const ASSETS = [];
   }
 }
 
+function pickOilForClass(cls, rng) {
+  if (cls === "rotax") return { brand: "AeroShell", name: "AeroShell Sport Plus 4", iso: "SAE 10W-40" };
+  // Most cert'd piston engines fly straight SAE 50 or 20W-50.
+  const pool = [
+    { brand: "AeroShell",  name: "AeroShell W100 Plus",  iso: "SAE 50" },
+    { brand: "AeroShell",  name: "AeroShell 15W-50",     iso: "SAE 15W-50" },
+    { brand: "Phillips 66",name: "Phillips X/C 20W-50",  iso: "SAE 20W-50" },
+    { brand: "ExxonMobil", name: "Exxon Elite 20W-50",   iso: "SAE 20W-50" },
+  ];
+  return pool[Math.floor(rng() * pool.length)];
+}
+
 function makeDimensions(rng, base, cls) {
-  // N-dimensional health depending on sample type
+  // N-dimensional health, tailored to engine type.
   const sets = {
-    pump:  ["Wear","Contamination","Chemistry"],
-    comp:  ["Wear","Contamination","Chemistry","Viscosity"],
-    turb:  ["Wear","Oxidation","Viscosity"],
-    gear:  ["Wear","Contamination","Additives","Viscosity"],
-    hyd:   ["Particles","Water","Viscosity"],
-    trans: ["Dielectric","Moisture","Acidity","Gases"],
+    lyco4:  ["Wear","Cylinders","Contamination"],
+    lyco6:  ["Wear","Cam/Lifter","Cylinders","Contamination"],
+    conto4: ["Wear","Cylinders","Contamination"],
+    conto6: ["Wear","Cylinders","Cam","Contamination"],
+    rotax:  ["Wear","Coolant","Gearbox","Contamination"],
+    radial: ["Wear","Master Rod","Cylinders","Oxidation"],
   };
   const dims = sets[cls] || ["Wear","Contamination","Chemistry"];
-  return dims.map((d, i) => {
+  return dims.map((d) => {
     const jitter = (rng() - 0.5) * 30;
     const score = Math.max(2, Math.min(99, Math.floor(base + jitter)));
     return { label: d, score, code: scoreToCode(score) };
   });
 }
 
-function daysAgo(d)   { const x = new Date(); x.setDate(x.getDate() - d); return x; }
+function daysAgo(d)    { const x = new Date(); x.setDate(x.getDate() - d); return x; }
 function daysFromNow(d){ const x = new Date(); x.setDate(x.getDate() + d); return x; }
 function fmtDate(d) {
   if (!(d instanceof Date)) return "—";
@@ -147,7 +198,6 @@ function fmtTime(d) {
   return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-// Sample lifecycle
 const SAMPLE_STATUS = ["DRAFT","QC","APPROVED","PUBLISHED","REJECTED"];
 
 const SAMPLES = [];
@@ -155,7 +205,6 @@ const SAMPLES = [];
   const rng = mulberry32(13);
   let id = 50231;
   for (const a of ASSETS) {
-    // Each asset gets 1-4 recent samples
     const n = 1 + Math.floor(rng() * 3);
     for (let i = 0; i < n; i++) {
       const ageDays = Math.floor(rng() * 28);
@@ -167,7 +216,7 @@ const SAMPLES = [];
       const score = Math.max(4, Math.min(99, Math.floor(a.health + noise)));
       SAMPLES.push({
         id: "S-" + (id++),
-        barcode: "0" + (240000 + Math.floor(rng() * 9999)),
+        barcode: "AOA" + (240000 + Math.floor(rng() * 9999)),    // mail-in lab barcode
         assetId: a.id,
         assetName: a.name,
         assetTag: a.tag,
@@ -187,42 +236,53 @@ const SAMPLES = [];
   SAMPLES.sort((a, b) => b.receivedAt - a.receivedAt);
 }
 
+// Piston engine oil samples almost always come from the sump on drain.
+// Filter cuts and suction-screen finds are the other common sources.
 function pickComponent(rng, cls) {
   const opts = {
-    pump:  ["Bearing","Casing","Mech Seal","Coupling"],
-    comp:  ["Crankcase","Cylinder","Cooler","Filter"],
-    turb:  ["Reservoir","Bearing","Gov Oil"],
-    gear:  ["High-speed Stage","Low-speed Stage","Sump","Bearing"],
-    hyd:   ["Main Reservoir","Charge Line","Return Line"],
-    trans: ["Tank Oil","LTC Compartment"],
+    lyco4:  ["Sump Drain","Filter Cut","Suction Screen"],
+    lyco6:  ["Sump Drain","Filter Cut","Suction Screen","Quick-Drain"],
+    conto4: ["Sump Drain","Filter Cut","Suction Screen"],
+    conto6: ["Sump Drain","Filter Cut","Suction Screen","Quick-Drain"],
+    rotax:  ["Sump Drain","Filter Cut","Gearbox Drain"],
+    radial: ["Sump Drain","Filter Cut","Suction Screen","Tank Drain"],
   };
-  const arr = opts[cls] || ["Sump"];
+  const arr = opts[cls] || ["Sump Drain"];
   return arr[Math.floor(rng() * arr.length)];
 }
 function pickAnalyst(rng) {
+  // Aviation oil-analysis lab staff (fictional).
   const list = ["M. Okafor","R. Pillai","S. Henningsen","T. Reyes","D. Vaughn","J. Park"];
   return list[Math.floor(rng() * list.length)];
 }
 function pickFlags(rng, score) {
   const flags = [];
   if (score < 55 && rng() < 0.7) flags.push("Fe↑");
-  if (score < 60 && rng() < 0.5) flags.push("H₂O");
-  if (score < 50 && rng() < 0.55) flags.push("Visc Δ");
-  if (score < 35 && rng() < 0.4) flags.push("TAN↑");
-  if (rng() < 0.05) flags.push("Particle");
+  if (score < 50 && rng() < 0.55) flags.push("Cr↑");
+  if (score < 60 && rng() < 0.40) flags.push("Al↑");
+  if (score < 60 && rng() < 0.50) flags.push("H₂O");
+  if (score < 50 && rng() < 0.45) flags.push("Fuel%");
+  if (score < 55 && rng() < 0.35) flags.push("Si↑");
+  if (score < 35 && rng() < 0.4)  flags.push("Visc Δ");
   return flags;
 }
 
-// Alarms
+// Alarms — seeded from the worst-health assets with aviation-flavored
+// rule strings.
 const ALARMS = [];
 {
   const rng = mulberry32(101);
   const candidates = ASSETS.filter(a => a.health < 70).sort((a,b) => a.health - b.health);
   for (const a of candidates.slice(0, 14)) {
     const t = rng();
-    const rule = a.health < 25 ? "Condemning limit exceeded"
-              : a.health < 50 ? (t < 0.5 ? "Bearing failure imminent — water contamination accelerating wear" : "Iron trend +3 consecutive, ΔFe 22 ppm in 1 sample")
-              : (t < 0.5 ? "Viscosity deviation > 15% — possible fuel dilution" : "Z-score anomaly on Cu (2.6σ above baseline)");
+    let rule;
+    if (a.health < 25)      rule = "Condemning limits exceeded — recommend immediate pull, borescope, and oil-filter cut.";
+    else if (a.health < 50) rule = (t < 0.5
+      ? "Cam/lifter wear signature — Fe + Cr running together (Lycoming pattern)."
+      : "Iron trend +3 consecutive · ΔFe 22 ppm in 1 interval — cylinder or cam.");
+    else                    rule = (t < 0.5
+      ? "Viscosity dropped ~15% — possible fuel dilution from mag drop or rich operation."
+      : "Z-score anomaly on Cu (2.6σ above baseline) — possible oil-cooler corrosion.");
     ALARMS.push({
       id: "AL-" + Math.floor(10000 + rng()*89999),
       assetId: a.id,
@@ -240,22 +300,22 @@ const ALARMS = [];
 }
 
 // ============================================================
-// Limit sets — per-parameter warn/alarm thresholds, per asset class
-// Defaults below; user overrides live in localStorage["oilwatch.limits"]
-// keyed by `${assetClass}.${paramCode}` → { warn, alarm }.
-// Future: replace localStorage with GET/PUT /api/limits.
+// Limit sets — aviation parameters with typical Blackstone-style
+// universal-average warn/alarm thresholds. Lead is intentionally
+// high-tolerance because all 100LL avgas engines carry ~4,000–7,000
+// ppm Pb as a baseline — that is normal, not alarming.
 // ============================================================
 const PARAM_DEFS = [
-  { code: "Fe",     name: "Iron",             unit: "ppm",      method: "ASTM D5185", warn: 25,        alarm: 50,        target: null,  kind: "num" },
-  { code: "Cu",     name: "Copper",           unit: "ppm",      method: "ASTM D5185", warn: 15,        alarm: 30,        target: null,  kind: "num" },
-  { code: "Si",     name: "Silicon",          unit: "ppm",      method: "ASTM D5185", warn: 12,        alarm: 25,        target: null,  kind: "num" },
-  { code: "Pb",     name: "Lead",             unit: "ppm",      method: "ASTM D5185", warn: 12,        alarm: 24,        target: null,  kind: "num" },
-  { code: "Cr",     name: "Chromium",         unit: "ppm",      method: "ASTM D5185", warn: 8,         alarm: 16,        target: null,  kind: "num" },
-  { code: "Visc40", name: "Viscosity @ 40°C", unit: "cSt",      method: "ASTM D445",  warn: "±10%",    alarm: "±15%",    target: 46,    kind: "pct"  },
-  { code: "H2O",    name: "Water",            unit: "ppm",      method: "ASTM D6304", warn: 500,       alarm: 1500,      target: null,  kind: "num" },
-  { code: "TAN",    name: "Acid Number",      unit: "mg KOH/g", method: "ASTM D664",  warn: 1.2,       alarm: 2.0,       target: null,  kind: "num" },
-  { code: "ISO",    name: "Particle Code",    unit: "—",        method: "ISO 4406",   warn: "18/16/13", alarm: "20/18/15", target: null, kind: "iso" },
-  { code: "Oxid",   name: "Oxidation",        unit: "Abs/cm",   method: "FTIR",       warn: 20,        alarm: 30,        target: null,  kind: "num" },
+  { code: "Fe",      name: "Iron",             unit: "ppm",      method: "ASTM D5185",  warn: 35,    alarm: 65,    target: null, kind: "num" },
+  { code: "Cr",      name: "Chromium",         unit: "ppm",      method: "ASTM D5185",  warn: 5,     alarm: 10,    target: null, kind: "num" },
+  { code: "Al",      name: "Aluminum",         unit: "ppm",      method: "ASTM D5185",  warn: 8,     alarm: 15,    target: null, kind: "num" },
+  { code: "Cu",      name: "Copper",           unit: "ppm",      method: "ASTM D5185",  warn: 15,    alarm: 35,    target: null, kind: "num" },
+  { code: "Pb",      name: "Lead (100LL)",     unit: "ppm",      method: "ASTM D5185",  warn: 8000,  alarm: 12000, target: null, kind: "num" },
+  { code: "Ni",      name: "Nickel",           unit: "ppm",      method: "ASTM D5185",  warn: 3,     alarm: 6,     target: null, kind: "num" },
+  { code: "Si",      name: "Silicon",          unit: "ppm",      method: "ASTM D5185",  warn: 15,    alarm: 30,    target: null, kind: "num" },
+  { code: "Visc100", name: "Visc @ 100°C",     unit: "cSt",      method: "ASTM D445",   warn: "±10%",alarm: "±15%",target: 19,   kind: "pct" },
+  { code: "H2O",     name: "Water",            unit: "ppm",      method: "ASTM D6304",  warn: 200,   alarm: 500,   target: null, kind: "num" },
+  { code: "Fuel",    name: "Fuel Dilution",    unit: "%",        method: "GC",          warn: 2,     alarm: 4,     target: null, kind: "num" },
 ];
 
 const LIMITS_KEY = "oilwatch.limits";
@@ -268,7 +328,6 @@ function readLimitOverrides() {
 function writeLimitOverrides(o) {
   try { localStorage.setItem(LIMITS_KEY, JSON.stringify(o)); } catch (_) {}
 }
-// Resolve effective limits for an asset class as { code → {warn,alarm,target,…} }.
 function getLimits(assetClass) {
   const o = readLimitOverrides();
   const out = {};
@@ -283,7 +342,6 @@ function setLimit(assetClass, paramCode, patch) {
   const o = readLimitOverrides();
   const key = `${assetClass || "all"}.${paramCode}`;
   o[key] = { ...(o[key] || {}), ...patch };
-  // Drop keys that match defaults, so the override store stays clean.
   const def = PARAM_DEFS.find(p => p.code === paramCode);
   if (def && o[key].warn === def.warn && o[key].alarm === def.alarm && (o[key].target ?? def.target) === def.target) {
     delete o[key];
@@ -297,45 +355,54 @@ function resetLimits(assetClass) {
 }
 
 // ============================================================
-// Rules engine — declarative rules over sample parameters.
-// Persisted to localStorage["oilwatch.rules"]; eval is pure.
-// Schema:
-//   { id, name, enabled, severity: "WARN"|"CRITICAL"|"SEVERE",
-//     scope: { classes: ["pump", ...] | "all" },
-//     conditions: [{ param: "Fe", op: ">"|">="|"<"|"<="|"trend+"|"trend-", value: 30, window: 3 }],
-//     action: "alarm" | "notify" | "flag",
-//     createdAt, lastTriggered }
+// Rules engine — aviation-flavored seed rules.
 // ============================================================
 const RULE_SEED = [
   {
-    id: "R-001", name: "Iron run-up — 3 consecutive increases",
+    id: "R-001", name: "Cam/lifter wear pattern (Lycoming)",
     enabled: true, severity: "CRITICAL",
-    scope: { classes: "all" },
-    conditions: [{ param: "Fe", op: "trend+", value: 3, window: 3 }],
+    scope: { classes: ["lyco4","lyco6"] },
+    conditions: [
+      { param: "Fe", op: ">", value: 35 },
+      { param: "Cr", op: ">", value: 5  },
+    ],
     action: "alarm",
     createdAt: "2026-04-12T14:00:00Z", lastTriggered: "2026-05-08T06:14:00Z",
   },
   {
-    id: "R-002", name: "Viscosity deviation > 15%",
+    id: "R-002", name: "Viscosity drop > 15% — fuel dilution suspected",
     enabled: true, severity: "CRITICAL",
-    scope: { classes: ["pump", "comp", "turb", "gear"] },
-    conditions: [{ param: "Visc40", op: "abs%>", value: 15 }],
+    scope: { classes: "all" },
+    conditions: [{ param: "Visc100", op: "abs%>", value: 15 }],
     action: "alarm",
     createdAt: "2026-03-30T10:00:00Z", lastTriggered: "2026-05-10T22:01:00Z",
   },
   {
-    id: "R-003", name: "Water + iron co-elevation (bearing wear pattern)",
+    id: "R-003", name: "Aluminum spike — piston scuff",
     enabled: true, severity: "SEVERE",
-    scope: { classes: ["pump", "comp"] },
-    conditions: [
-      { param: "H2O", op: ">", value: 1000 },
-      { param: "Fe",  op: ">", value: 30 },
-    ],
+    scope: { classes: "all" },
+    conditions: [{ param: "Al", op: ">", value: 15 }],
     action: "alarm",
     createdAt: "2026-02-18T09:00:00Z", lastTriggered: "2026-05-11T03:22:00Z",
   },
   {
-    id: "R-004", name: "Copper Z-score anomaly (2σ)",
+    id: "R-004", name: "Water > 500 ppm — short-flight condensation",
+    enabled: true, severity: "WARN",
+    scope: { classes: "all" },
+    conditions: [{ param: "H2O", op: ">", value: 500 }],
+    action: "notify",
+    createdAt: "2026-02-05T12:00:00Z", lastTriggered: "2026-04-29T16:00:00Z",
+  },
+  {
+    id: "R-005", name: "Fuel dilution > 4% — mag check needed",
+    enabled: true, severity: "CRITICAL",
+    scope: { classes: ["lyco4","lyco6","conto4","conto6"] },
+    conditions: [{ param: "Fuel", op: ">", value: 4 }],
+    action: "alarm",
+    createdAt: "2026-01-22T09:00:00Z", lastTriggered: null,
+  },
+  {
+    id: "R-006", name: "Copper Z-score anomaly (oil-cooler corrosion)",
     enabled: false, severity: "WARN",
     scope: { classes: "all" },
     conditions: [{ param: "Cu", op: "z>", value: 2.0 }],
@@ -373,8 +440,6 @@ function nextRuleId() {
   return "R-" + String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, "0");
 }
 
-// Evaluate one rule against a single test-result snapshot.
-// Returns the rule augmented with `{ triggered: bool, reasons: [...] }`.
 function evalRule(rule, results) {
   if (!rule.enabled) return { ...rule, triggered: false, reasons: [] };
   const reasons = [];
@@ -390,30 +455,32 @@ function evalRule(rule, results) {
       const pct = Math.abs(v - r.target) / r.target * 100;
       if (pct > c.value) { reasons.push(`${c.param} Δ${pct.toFixed(1)}% > ${c.value}%`); continue; }
     }
-    // trend operators are advisory in this prototype — surfaced as "n/a"
     return { ...rule, triggered: false, reasons };
   }
   return { ...rule, triggered: reasons.length === (rule.conditions || []).length, reasons };
 }
 
-// Test parameters for sample detail — limits flow through getLimits(class)
+// Test parameters per sample — values pulled from typical piston-aircraft
+// wear-metal ranges; limits flow through getLimits(class).
 function makeTestResults(sample) {
   const rng = mulberry32(parseInt(sample.id.slice(2), 10));
   const asset = ASSETS.find(a => a.id === sample.assetId);
   const limits = getLimits(asset?.class);
   const bad = sample.score < 55;
   const sev = sample.score < 30;
+  // Baseline lead carries 100LL combustion residue — present even on
+  // healthy engines (~4-6k ppm).
   const baseValues = {
-    Fe:     sev ? 84   : bad ? 38   : 8 + Math.floor(rng()*7),
-    Cu:     sev ? 41   : bad ? 22   : 3 + Math.floor(rng()*6),
-    Si:     sev ? 28   : bad ? 14   : 2 + Math.floor(rng()*5),
-    Pb:                  bad ? 18   : 2 + Math.floor(rng()*4),
-    Cr:                  bad ? 9    : 1 + Math.floor(rng()*3),
-    Visc40: bad ? 38.2 : 45.8 + (rng()-0.5)*1.6,
-    H2O:    sev ? 2400 : bad ? 1100 : 120 + Math.floor(rng()*180),
-    TAN:                 bad ? 1.9  : 0.4 + rng()*0.4,
-    ISO:                 bad ? "21/19/16" : "17/15/12",
-    Oxid:                bad ? 24   : 8 + Math.floor(rng()*5),
+    Fe:      sev ? 78    : bad ? 42    : 12 + Math.floor(rng()*14),
+    Cr:      sev ? 14    : bad ? 7     : 1  + Math.floor(rng()*3),
+    Al:      sev ? 22    : bad ? 11    : 2  + Math.floor(rng()*4),
+    Cu:      sev ? 48    : bad ? 22    : 4  + Math.floor(rng()*8),
+    Pb:      4000 + Math.floor(rng() * 3500) + (bad ? 1500 : 0),  // 100LL avgas baseline
+    Ni:      sev ? 8     : bad ? 3     : Math.floor(rng()*2),
+    Si:      sev ? 36    : bad ? 18    : 4  + Math.floor(rng()*7),
+    Visc100: bad ? 16.4  : 19.0 + (rng()-0.5)*1.2,                 // SAE 50 nominal
+    H2O:     sev ? 720   : bad ? 320   : 40 + Math.floor(rng()*80),
+    Fuel:    sev ? 5.2   : bad ? 2.4   : Number(((rng()*0.8)).toFixed(2)),
   };
   return PARAM_DEFS.map(p => {
     const lim = limits[p.code];
@@ -422,17 +489,15 @@ function makeTestResults(sample) {
     return row;
   });
 }
+
 function evalStatus(p) {
   if (typeof p.alarm === "number" && typeof p.value === "number") {
     if (p.value >= p.alarm) return "alarm";
     if (p.value >= p.warn)  return "warn";
     return "ok";
   }
-  if (p.code === "ISO") {
-    return p.value === "21/19/16" ? "alarm" : "ok";
-  }
-  if (p.code === "Visc40") {
-    const dev = Math.abs(p.value - 46) / 46;
+  if (p.code === "Visc100" && typeof p.value === "number" && p.target) {
+    const dev = Math.abs(p.value - p.target) / p.target;
     if (dev > 0.15) return "alarm";
     if (dev > 0.10) return "warn";
     return "ok";
@@ -440,12 +505,28 @@ function evalStatus(p) {
   return "ok";
 }
 
-// Trends for asset drill-down (12 points)
+// Trends for asset drill-down. Targets/limits tuned to the aviation params.
 function makeTrend(asset, paramKey) {
   const rng = mulberry32(asset.id.charCodeAt(2) + paramKey.length);
-  const target = paramKey === "Fe" ? 12 : paramKey === "Visc40" ? 46 : paramKey === "H2O" ? 200 : 8;
-  const warn   = paramKey === "Fe" ? 25 : paramKey === "Visc40" ? 50 : paramKey === "H2O" ? 500 : 18;
-  const alarm  = paramKey === "Fe" ? 50 : paramKey === "Visc40" ? 53 : paramKey === "H2O" ? 1500 : 30;
+  const target = paramKey === "Fe" ? 18
+               : paramKey === "Cr" ? 3
+               : paramKey === "Al" ? 5
+               : paramKey === "Visc100" ? 19
+               : paramKey === "H2O" ? 100
+               : 8;
+  const warn   = paramKey === "Fe" ? 35
+               : paramKey === "Cr" ? 5
+               : paramKey === "Al" ? 8
+               : paramKey === "Visc100" ? 21
+               : paramKey === "H2O" ? 200
+               : 18;
+  const alarm  = paramKey === "Fe" ? 65
+               : paramKey === "Cr" ? 10
+               : paramKey === "Al" ? 15
+               : paramKey === "Visc100" ? 22
+               : paramKey === "H2O" ? 500
+               : 30;
+  const unit   = paramKey === "Visc100" ? "cSt" : (paramKey === "H2O" || paramKey === "Fe" || paramKey === "Cr" || paramKey === "Al") ? "ppm" : "ppm";
   const bad = asset.health < 60;
   const points = [];
   for (let i = 0; i < 12; i++) {
@@ -455,13 +536,12 @@ function makeTrend(asset, paramKey) {
     points.push({
       i,
       date: daysAgo((11 - i) * 14),
-      value: paramKey === "Visc40" ? Number(v.toFixed(1)) : Math.round(v),
+      value: paramKey === "Visc100" ? Number(v.toFixed(1)) : Math.round(v),
     });
   }
-  return { points, target, warn, alarm, unit: paramKey === "Visc40" ? "cSt" : "ppm" };
+  return { points, target, warn, alarm, unit };
 }
 
-// Counts for dashboard
 function fleetCounts() {
   const total = ASSETS.length;
   const byCode = { 1: 0, 2: 0, 3: 0, 4: 0 };
@@ -469,7 +549,6 @@ function fleetCounts() {
   return { total, byCode };
 }
 
-// Recent published samples (for AI tools)
 function recentPublished(n = 6) {
   return SAMPLES.filter(s => s.status === "PUBLISHED").slice(0, n);
 }
