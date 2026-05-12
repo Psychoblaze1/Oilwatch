@@ -71,6 +71,8 @@ function App() {
           {route === "assets"    && <ScreenAssets    siteFilter={siteFilter} focus={focus} />}
           {route === "alarms"    && <ScreenAlarms    siteFilter={siteFilter} focus={focus} />}
           {route === "ai"        && <ScreenAI        focus={focus} openAI={() => setAIOpen(true)} />}
+          {route === "limits"    && <ScreenLimits    role={role} />}
+          {route === "rules"     && <ScreenRules     role={role} />}
           {route === "ref"       && <ScreenRef />}
           {route === "sample"    && <ScreenSample    sampleId={focused?.id} back={back} openAI={() => setAIOpen(true)} role={role}/>}
           {route === "asset"     && <ScreenAsset     assetId={focused?.id}  back={back} focus={focus} openAI={() => setAIOpen(true)} />}

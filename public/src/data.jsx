@@ -239,27 +239,188 @@ const ALARMS = [];
   }
 }
 
-// Test parameters for sample detail
+// ============================================================
+// Limit sets — per-parameter warn/alarm thresholds, per asset class
+// Defaults below; user overrides live in localStorage["oilwatch.limits"]
+// keyed by `${assetClass}.${paramCode}` → { warn, alarm }.
+// Future: replace localStorage with GET/PUT /api/limits.
+// ============================================================
+const PARAM_DEFS = [
+  { code: "Fe",     name: "Iron",             unit: "ppm",      method: "ASTM D5185", warn: 25,        alarm: 50,        target: null,  kind: "num" },
+  { code: "Cu",     name: "Copper",           unit: "ppm",      method: "ASTM D5185", warn: 15,        alarm: 30,        target: null,  kind: "num" },
+  { code: "Si",     name: "Silicon",          unit: "ppm",      method: "ASTM D5185", warn: 12,        alarm: 25,        target: null,  kind: "num" },
+  { code: "Pb",     name: "Lead",             unit: "ppm",      method: "ASTM D5185", warn: 12,        alarm: 24,        target: null,  kind: "num" },
+  { code: "Cr",     name: "Chromium",         unit: "ppm",      method: "ASTM D5185", warn: 8,         alarm: 16,        target: null,  kind: "num" },
+  { code: "Visc40", name: "Viscosity @ 40°C", unit: "cSt",      method: "ASTM D445",  warn: "±10%",    alarm: "±15%",    target: 46,    kind: "pct"  },
+  { code: "H2O",    name: "Water",            unit: "ppm",      method: "ASTM D6304", warn: 500,       alarm: 1500,      target: null,  kind: "num" },
+  { code: "TAN",    name: "Acid Number",      unit: "mg KOH/g", method: "ASTM D664",  warn: 1.2,       alarm: 2.0,       target: null,  kind: "num" },
+  { code: "ISO",    name: "Particle Code",    unit: "—",        method: "ISO 4406",   warn: "18/16/13", alarm: "20/18/15", target: null, kind: "iso" },
+  { code: "Oxid",   name: "Oxidation",        unit: "Abs/cm",   method: "FTIR",       warn: 20,        alarm: 30,        target: null,  kind: "num" },
+];
+
+const LIMITS_KEY = "oilwatch.limits";
+const RULES_KEY  = "oilwatch.rules";
+
+function readLimitOverrides() {
+  try { return JSON.parse(localStorage.getItem(LIMITS_KEY) || "{}"); }
+  catch (_) { return {}; }
+}
+function writeLimitOverrides(o) {
+  try { localStorage.setItem(LIMITS_KEY, JSON.stringify(o)); } catch (_) {}
+}
+// Resolve effective limits for an asset class as { code → {warn,alarm,target,…} }.
+function getLimits(assetClass) {
+  const o = readLimitOverrides();
+  const out = {};
+  for (const p of PARAM_DEFS) {
+    const key = `${assetClass || "all"}.${p.code}`;
+    const ov = o[key] || {};
+    out[p.code] = { ...p, warn: ov.warn ?? p.warn, alarm: ov.alarm ?? p.alarm, target: ov.target ?? p.target };
+  }
+  return out;
+}
+function setLimit(assetClass, paramCode, patch) {
+  const o = readLimitOverrides();
+  const key = `${assetClass || "all"}.${paramCode}`;
+  o[key] = { ...(o[key] || {}), ...patch };
+  // Drop keys that match defaults, so the override store stays clean.
+  const def = PARAM_DEFS.find(p => p.code === paramCode);
+  if (def && o[key].warn === def.warn && o[key].alarm === def.alarm && (o[key].target ?? def.target) === def.target) {
+    delete o[key];
+  }
+  writeLimitOverrides(o);
+}
+function resetLimits(assetClass) {
+  const o = readLimitOverrides();
+  for (const k of Object.keys(o)) if (k.startsWith(`${assetClass || "all"}.`)) delete o[k];
+  writeLimitOverrides(o);
+}
+
+// ============================================================
+// Rules engine — declarative rules over sample parameters.
+// Persisted to localStorage["oilwatch.rules"]; eval is pure.
+// Schema:
+//   { id, name, enabled, severity: "WARN"|"CRITICAL"|"SEVERE",
+//     scope: { classes: ["pump", ...] | "all" },
+//     conditions: [{ param: "Fe", op: ">"|">="|"<"|"<="|"trend+"|"trend-", value: 30, window: 3 }],
+//     action: "alarm" | "notify" | "flag",
+//     createdAt, lastTriggered }
+// ============================================================
+const RULE_SEED = [
+  {
+    id: "R-001", name: "Iron run-up — 3 consecutive increases",
+    enabled: true, severity: "CRITICAL",
+    scope: { classes: "all" },
+    conditions: [{ param: "Fe", op: "trend+", value: 3, window: 3 }],
+    action: "alarm",
+    createdAt: "2026-04-12T14:00:00Z", lastTriggered: "2026-05-08T06:14:00Z",
+  },
+  {
+    id: "R-002", name: "Viscosity deviation > 15%",
+    enabled: true, severity: "CRITICAL",
+    scope: { classes: ["pump", "comp", "turb", "gear"] },
+    conditions: [{ param: "Visc40", op: "abs%>", value: 15 }],
+    action: "alarm",
+    createdAt: "2026-03-30T10:00:00Z", lastTriggered: "2026-05-10T22:01:00Z",
+  },
+  {
+    id: "R-003", name: "Water + iron co-elevation (bearing wear pattern)",
+    enabled: true, severity: "SEVERE",
+    scope: { classes: ["pump", "comp"] },
+    conditions: [
+      { param: "H2O", op: ">", value: 1000 },
+      { param: "Fe",  op: ">", value: 30 },
+    ],
+    action: "alarm",
+    createdAt: "2026-02-18T09:00:00Z", lastTriggered: "2026-05-11T03:22:00Z",
+  },
+  {
+    id: "R-004", name: "Copper Z-score anomaly (2σ)",
+    enabled: false, severity: "WARN",
+    scope: { classes: "all" },
+    conditions: [{ param: "Cu", op: "z>", value: 2.0 }],
+    action: "flag",
+    createdAt: "2026-01-09T08:00:00Z", lastTriggered: null,
+  },
+];
+
+function readRules() {
+  try {
+    const v = JSON.parse(localStorage.getItem(RULES_KEY) || "null");
+    if (Array.isArray(v) && v.length) return v;
+  } catch (_) {}
+  return RULE_SEED.slice();
+}
+function writeRules(rules) {
+  try { localStorage.setItem(RULES_KEY, JSON.stringify(rules)); } catch (_) {}
+}
+function getRules() { return readRules(); }
+function saveRule(rule) {
+  const list = readRules();
+  const i = list.findIndex(r => r.id === rule.id);
+  if (i >= 0) list[i] = rule; else list.unshift(rule);
+  writeRules(list);
+  return list;
+}
+function deleteRule(id) {
+  const list = readRules().filter(r => r.id !== id);
+  writeRules(list);
+  return list;
+}
+function nextRuleId() {
+  const list = readRules();
+  const nums = list.map(r => parseInt((r.id || "R-0").split("-")[1], 10)).filter(n => !isNaN(n));
+  return "R-" + String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, "0");
+}
+
+// Evaluate one rule against a single test-result snapshot.
+// Returns the rule augmented with `{ triggered: bool, reasons: [...] }`.
+function evalRule(rule, results) {
+  if (!rule.enabled) return { ...rule, triggered: false, reasons: [] };
+  const reasons = [];
+  for (const c of rule.conditions || []) {
+    const r = results.find(x => x.code === c.param);
+    if (!r) { reasons.push(`${c.param}: no data`); continue; }
+    const v = typeof r.value === "number" ? r.value : null;
+    if (c.op === ">"  && v != null && v >  c.value) { reasons.push(`${c.param} ${v} > ${c.value}`); continue; }
+    if (c.op === ">=" && v != null && v >= c.value) { reasons.push(`${c.param} ${v} ≥ ${c.value}`); continue; }
+    if (c.op === "<"  && v != null && v <  c.value) { reasons.push(`${c.param} ${v} < ${c.value}`); continue; }
+    if (c.op === "<=" && v != null && v <= c.value) { reasons.push(`${c.param} ${v} ≤ ${c.value}`); continue; }
+    if (c.op === "abs%>" && v != null && r.target) {
+      const pct = Math.abs(v - r.target) / r.target * 100;
+      if (pct > c.value) { reasons.push(`${c.param} Δ${pct.toFixed(1)}% > ${c.value}%`); continue; }
+    }
+    // trend operators are advisory in this prototype — surfaced as "n/a"
+    return { ...rule, triggered: false, reasons };
+  }
+  return { ...rule, triggered: reasons.length === (rule.conditions || []).length, reasons };
+}
+
+// Test parameters for sample detail — limits flow through getLimits(class)
 function makeTestResults(sample) {
   const rng = mulberry32(parseInt(sample.id.slice(2), 10));
+  const asset = ASSETS.find(a => a.id === sample.assetId);
+  const limits = getLimits(asset?.class);
   const bad = sample.score < 55;
   const sev = sample.score < 30;
-  const params = [
-    { code: "Fe",       name: "Iron",            unit: "ppm",  value: sev ? 84 : bad ? 38 : 8 + Math.floor(rng()*7),    warn: 25,   alarm: 50,   method: "ASTM D5185" },
-    { code: "Cu",       name: "Copper",          unit: "ppm",  value: sev ? 41 : bad ? 22 : 3 + Math.floor(rng()*6),    warn: 15,   alarm: 30,   method: "ASTM D5185" },
-    { code: "Si",       name: "Silicon",         unit: "ppm",  value: sev ? 28 : bad ? 14 : 2 + Math.floor(rng()*5),    warn: 12,   alarm: 25,   method: "ASTM D5185" },
-    { code: "Pb",       name: "Lead",            unit: "ppm",  value: bad ? 18 : 2 + Math.floor(rng()*4),               warn: 12,   alarm: 24,   method: "ASTM D5185" },
-    { code: "Cr",       name: "Chromium",        unit: "ppm",  value: bad ? 9  : 1 + Math.floor(rng()*3),               warn: 8,    alarm: 16,   method: "ASTM D5185" },
-    { code: "Visc40",   name: "Viscosity @ 40°C",unit: "cSt",  value: bad ? 38.2 : 45.8 + (rng()-0.5)*1.6,              warn: "±10%", alarm: "±15%", method: "ASTM D445", target: 46 },
-    { code: "H2O",      name: "Water",           unit: "ppm",  value: sev ? 2400 : bad ? 1100 : 120 + Math.floor(rng()*180), warn: 500, alarm: 1500, method: "ASTM D6304" },
-    { code: "TAN",      name: "Acid Number",     unit: "mg KOH/g", value: bad ? 1.9 : 0.4 + rng()*0.4,                  warn: 1.2,  alarm: 2.0,  method: "ASTM D664"  },
-    { code: "ISO",      name: "Particle Code",   unit: "—",    value: bad ? "21/19/16" : "17/15/12",                    warn: "18/16/13", alarm: "20/18/15", method: "ISO 4406" },
-    { code: "Oxid",     name: "Oxidation",       unit: "Abs/cm",value: bad ? 24 : 8 + Math.floor(rng()*5),              warn: 20,   alarm: 30,   method: "FTIR" },
-  ];
-  return params.map(p => ({
-    ...p,
-    status: evalStatus(p),
-  }));
+  const baseValues = {
+    Fe:     sev ? 84   : bad ? 38   : 8 + Math.floor(rng()*7),
+    Cu:     sev ? 41   : bad ? 22   : 3 + Math.floor(rng()*6),
+    Si:     sev ? 28   : bad ? 14   : 2 + Math.floor(rng()*5),
+    Pb:                  bad ? 18   : 2 + Math.floor(rng()*4),
+    Cr:                  bad ? 9    : 1 + Math.floor(rng()*3),
+    Visc40: bad ? 38.2 : 45.8 + (rng()-0.5)*1.6,
+    H2O:    sev ? 2400 : bad ? 1100 : 120 + Math.floor(rng()*180),
+    TAN:                 bad ? 1.9  : 0.4 + rng()*0.4,
+    ISO:                 bad ? "21/19/16" : "17/15/12",
+    Oxid:                bad ? 24   : 8 + Math.floor(rng()*5),
+  };
+  return PARAM_DEFS.map(p => {
+    const lim = limits[p.code];
+    const row = { ...p, value: baseValues[p.code], warn: lim.warn, alarm: lim.alarm, target: lim.target ?? p.target };
+    row.status = evalStatus(row);
+    return row;
+  });
 }
 function evalStatus(p) {
   if (typeof p.alarm === "number" && typeof p.value === "number") {
@@ -314,7 +475,9 @@ function recentPublished(n = 6) {
 }
 
 Object.assign(window, {
-  SITES, ASSETS, ASSET_CLASSES, ROLES, SAMPLES, ALARMS, COND, OILS,
+  SITES, ASSETS, ASSET_CLASSES, ROLES, SAMPLES, ALARMS, COND, OILS, PARAM_DEFS,
   scoreToCode, fmtDate, fmtShortDate, fmtTime,
   makeTestResults, makeTrend, fleetCounts, recentPublished,
+  getLimits, setLimit, resetLimits,
+  getRules, saveRule, deleteRule, nextRuleId, evalRule,
 });

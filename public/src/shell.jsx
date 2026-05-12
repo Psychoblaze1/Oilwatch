@@ -24,6 +24,8 @@ function Sidebar({ route, setRoute, role, setRole, openAI }) {
     { id: "assets",    icon: "assets",    label: "Assets" },
     { id: "alarms",    icon: "alarm",     label: "Alarms",   count: window.ALARMS.filter(a => !a.acknowledged).length },
     { id: "ai",        icon: "ai",        label: "AI Studio" },
+    { id: "limits",    icon: "limits",    label: "Limits" },
+    { id: "rules",     icon: "rules",     label: "Rules" },
     { id: "ref",       icon: "ref",       label: "Reference" },
   ];
   return (
@@ -106,6 +108,8 @@ function Topbar({ site, setSite, route, openAI, onSearch, dark, onToggleTheme })
     assets:    "Assets",
     alarms:    "Alarms",
     ai:        "AI Studio",
+    limits:    "Editing Limits",
+    rules:     "Rules Engine",
     ref:       "Reference Library",
     sample:    "Sample",
     asset:     "Asset",
