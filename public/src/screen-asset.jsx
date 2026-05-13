@@ -32,7 +32,7 @@ function ScreenAsset({ assetId, back, focus, openAI }) {
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost"><Icon name="plus" size={14}/> New sample</button>
-          <button className="btn btn-ghost" onClick={() => window.exportPDF(`oilwatch-${asset.id}-${asset.tag}.pdf`)}><Icon name="download" size={14}/> Export PDF</button>
+          <button className="btn btn-ghost" onClick={() => window.exportAssetPDF(asset)}><Icon name="download" size={14}/> Engine report</button>
           <button className="btn btn-primary" onClick={openAI}><Icon name="ai" size={14}/> Ask AI</button>
         </div>
       </div>

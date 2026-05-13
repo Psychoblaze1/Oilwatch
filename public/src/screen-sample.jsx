@@ -46,25 +46,29 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
           </div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost"><Icon name="barcode" size={14}/> {sample.barcode}</button>
-          <button className="btn btn-ghost" onClick={() => window.exportPDF(`oilwatch-${sample.id}.pdf`)}><Icon name="download" size={14}/> Report PDF</button>
-          {canApprove && <button className="btn" onClick={() => updateStatus("REJECTED")}>Reject</button>}
-          {canApprove && <button className="btn btn-primary" onClick={() => updateStatus("APPROVED")}><Icon name="check" size={14}/> Approve</button>}
-          {canPublish && <button className="btn btn-primary" onClick={() => updateStatus("PUBLISHED")}><Icon name="check" size={14}/> Publish</button>}
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)", letterSpacing: "0.05em", marginRight: 4 }}>
+            <Icon name="barcode" size={12} style={{ verticalAlign: "middle", marginRight: 4 }}/>{sample.barcode}
+          </span>
+          <button className="btn btn-primary" onClick={() => window.exportSamplePDF(sample)}>
+            <Icon name="download" size={14}/> Print Report
+          </button>
         </div>
       </div>
 
       {/* Top: radar + dimension cards + AI */}
-      <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 16, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 16, marginBottom: 16 }}>
         <div className="card">
           <div className="card-head">
-            <span className="card-title">Health Assessment</span>
+            <span className="card-title">Health Vector</span>
             <Chip code={sample.code} size="md">{cond.label.toUpperCase()}</Chip>
           </div>
-          <div className="card-body" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-            <HealthRadar dimensions={dims} size={260} />
+          <div className="card-body" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+            <HealthRadar dimensions={dims} size={210} />
             <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)", letterSpacing: 0.1 }}>
-              ISO COND {sample.code} · {cond.range} BAND
+              SCORE {sample.score} · COND {sample.code} ({cond.range})
+            </div>
+            <div className="mono" style={{ fontSize: 10, color: "var(--ink-4)", letterSpacing: 0.08, marginTop: 4 }}>
+              ON-SCREEN ONLY · NOT IN PRINT REPORT
             </div>
           </div>
         </div>
@@ -91,8 +95,8 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
           <div className="card" style={{ borderColor: "var(--accent-line)" }}>
             <div className="card-head" style={{ borderBottom: "1px solid var(--accent-line)" }}>
               <Icon name="ai" size={14} style={{ color: "var(--accent)" }}/>
-              <span className="card-title" style={{ color: "var(--accent)" }}>Claude Recommendation</span>
-              <span className="card-sub mono">CONFIDENCE 0.87</span>
+              <span className="card-title" style={{ color: "var(--accent)" }}>Diagnostic Summary</span>
+              <span className="card-sub mono">CLAUDE · CONFIDENCE 0.87</span>
             </div>
             <div className="card-body">
               <div style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--ink)" }}>
@@ -202,6 +206,27 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Internal workflow actions — kept off the printed report. */}
+      <div className="card" style={{ marginTop: 16, borderColor: "var(--accent-line)" }}>
+        <div className="card-head">
+          <span className="card-title">Internal Workflow Actions</span>
+          <span className="card-sub mono">NOT INCLUDED IN PRINTED REPORT</span>
+        </div>
+        <div className="card-body" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 12.5, color: "var(--ink-2)", flex: 1, minWidth: 320 }}>
+            Current status: <span className="status-pill" data-s={status}>{status}</span>.
+            {canApprove && " Approve to move into the publish queue, or reject to remove it from the lifecycle."}
+            {canPublish && " Publish makes this report visible to the operator."}
+            {!canApprove && !canPublish && " No workflow actions available at this status / role."}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {canApprove && <button className="btn" onClick={() => updateStatus("REJECTED")}>Reject</button>}
+            {canApprove && <button className="btn btn-primary" onClick={() => updateStatus("APPROVED")}><Icon name="check" size={14}/> Approve</button>}
+            {canPublish && <button className="btn btn-primary" onClick={() => updateStatus("PUBLISHED")}><Icon name="check" size={14}/> Publish to operator</button>}
           </div>
         </div>
       </div>
