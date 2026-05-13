@@ -21,7 +21,9 @@ if (!dbApi.isSeeded()) {
 }
 
 const app = express();
-app.use(express.json({ limit: "1mb" }));
+// Raised limit to comfortably carry a downsized filter-patch JPEG as a
+// base64 data URL inside the POST body.
+app.use(express.json({ limit: "8mb" }));
 
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
 app.use(express.static(PUBLIC_DIR));
@@ -54,9 +56,20 @@ app.post("/api/samples", (req, res) => {
     analyst: s.analyst || "—",
     flags: s.flags || [],
     results: s.results || null,
+    sampleType: s.sampleType || "piston-oil",
+    filterPatch: s.filterPatch || null,
+    note: s.note || null,
   };
   try { dbApi.createSample(payload); res.json({ ok: true, id }); }
   catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+// Attach (or clear) a filter-patch image on an existing sample.
+// Body: { dataUrl } — a downsized JPEG/PNG data URL, or null to clear.
+app.put("/api/samples/:id/filter-patch", (req, res) => {
+  const { dataUrl } = req.body || {};
+  dbApi.setFilterPatch(req.params.id, dataUrl || null);
+  res.json({ ok: true });
 });
 app.put("/api/samples/:id", (req, res) => {
   const { status } = req.body || {};

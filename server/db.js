@@ -37,7 +37,10 @@ db.exec(`
     score INTEGER, code INTEGER,
     analyst TEXT,
     flags_json TEXT,
-    results_json TEXT
+    results_json TEXT,
+    sample_type TEXT DEFAULT 'piston-oil',
+    filter_patch TEXT,
+    note TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_samples_engine ON samples(engine_id);
   CREATE INDEX IF NOT EXISTS idx_samples_status ON samples(status);
@@ -61,6 +64,18 @@ db.exec(`
     created_at TEXT, last_triggered TEXT
   );
 `);
+
+// Live-migrate older DBs that pre-date the diesel columns. SQLite's
+// IF NOT EXISTS on CREATE TABLE skips adding columns, so we ALTER.
+(function migrateSamples() {
+  const cols = db.prepare("PRAGMA table_info(samples)").all().map(c => c.name);
+  if (!cols.includes("sample_type")) {
+    db.exec("ALTER TABLE samples ADD COLUMN sample_type TEXT DEFAULT 'piston-oil'");
+    db.exec("UPDATE samples SET sample_type = 'piston-oil' WHERE sample_type IS NULL");
+  }
+  if (!cols.includes("filter_patch")) db.exec("ALTER TABLE samples ADD COLUMN filter_patch TEXT");
+  if (!cols.includes("note"))         db.exec("ALTER TABLE samples ADD COLUMN note TEXT");
+})();
 
 function isSeeded() {
   return db.prepare("SELECT COUNT(*) AS n FROM engines").get().n > 0;
@@ -87,7 +102,8 @@ function getBootstrap() {
     SELECT sa.id, sa.barcode, sa.engine_id AS assetId, e.name AS assetName, e.tag AS assetTag,
            si.name AS siteName, sa.component, sa.oil_name AS oil,
            sa.received_at AS receivedAt, sa.status, sa.priority,
-           sa.score, sa.code, sa.analyst, sa.flags_json, sa.results_json
+           sa.score, sa.code, sa.analyst, sa.flags_json, sa.results_json,
+           sa.sample_type AS sampleType, sa.filter_patch AS filterPatch, sa.note
     FROM samples sa
     LEFT JOIN engines e ON sa.engine_id = e.id
     LEFT JOIN sites si ON e.site = si.id
@@ -98,7 +114,10 @@ function getBootstrap() {
     receivedAt: r.receivedAt, status: r.status, priority: r.priority,
     score: r.score, code: r.code, analyst: r.analyst,
     flags: JSON.parse(r.flags_json || "[]"),
-    results: JSON.parse(r.results_json || "null"),  // null until the sample is run
+    results: JSON.parse(r.results_json || "null"),
+    sampleType: r.sampleType || "piston-oil",
+    filterPatch: r.filterPatch || null,
+    note: r.note || null,
   }));
   const alarms = db.prepare(`
     SELECT a.id, a.engine_id AS assetId, e.name AS assetName, e.tag AS assetTag,
@@ -126,9 +145,11 @@ function getBootstrap() {
 
 const insertSampleStmt = db.prepare(`
   INSERT INTO samples (id, barcode, engine_id, component, oil_name, received_at,
-                       status, priority, score, code, analyst, flags_json, results_json)
+                       status, priority, score, code, analyst, flags_json, results_json,
+                       sample_type, filter_patch, note)
   VALUES (@id, @barcode, @engine_id, @component, @oil_name, @received_at,
-          @status, @priority, @score, @code, @analyst, @flags_json, @results_json)
+          @status, @priority, @score, @code, @analyst, @flags_json, @results_json,
+          @sample_type, @filter_patch, @note)
 `);
 function createSample(s) {
   insertSampleStmt.run({
@@ -145,8 +166,14 @@ function createSample(s) {
     analyst: s.analyst || "—",
     flags_json: JSON.stringify(s.flags || []),
     results_json: s.results ? JSON.stringify(s.results) : null,
+    sample_type: s.sampleType || "piston-oil",
+    filter_patch: s.filterPatch || null,
+    note: s.note || null,
   });
 }
+
+const updateFilterPatchStmt = db.prepare("UPDATE samples SET filter_patch = ? WHERE id = ?");
+function setFilterPatch(id, dataUrl) { updateFilterPatchStmt.run(dataUrl || null, id); }
 
 function nextSampleId() {
   const row = db.prepare("SELECT id FROM samples ORDER BY id DESC LIMIT 1").get();
@@ -205,6 +232,7 @@ module.exports = {
   getBootstrap,
   createSample, nextSampleId,
   setSampleStatus,
+  setFilterPatch,
   setAlarmAck, ackAllAlarms,
   setLimit, resetLimits,
   saveRule, deleteRule, nextRuleId,

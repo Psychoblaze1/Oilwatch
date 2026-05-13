@@ -11,12 +11,13 @@
 // ---- Static reference data ------------------------------------------
 
 const ASSET_CLASSES = [
-  { id: "lyco4",  label: "Lycoming 4-cyl" },
-  { id: "lyco6",  label: "Lycoming 6-cyl" },
-  { id: "conto4", label: "Continental 4"  },
-  { id: "conto6", label: "Continental 6"  },
-  { id: "rotax",  label: "Rotax"          },
-  { id: "radial", label: "Radial"         },
+  { id: "lyco4",  label: "Lycoming 4-cyl"   },
+  { id: "lyco6",  label: "Lycoming 6-cyl"   },
+  { id: "conto4", label: "Continental 4"    },
+  { id: "conto6", label: "Continental 6"    },
+  { id: "rotax",  label: "Rotax"            },
+  { id: "radial", label: "Radial"           },
+  { id: "genset", label: "Diesel Genset"    },
 ];
 
 const ROLES = [
@@ -44,18 +45,66 @@ const OILS = [
   { brand: "AeroShell",  name: "AeroShell Sport Plus 4",    iso: "SAE 10W-40" },
 ];
 
+// Aviation oil parameters. Uses warn/alarm tier semantics (OK / WARN / ALARM).
 const PARAM_DEFS = [
-  { code: "Fe",      name: "Iron",          unit: "ppm",      method: "ASTM D5185",  warn: 35,    alarm: 65,    target: null, kind: "num" },
-  { code: "Cr",      name: "Chromium",      unit: "ppm",      method: "ASTM D5185",  warn: 5,     alarm: 10,    target: null, kind: "num" },
-  { code: "Al",      name: "Aluminum",      unit: "ppm",      method: "ASTM D5185",  warn: 8,     alarm: 15,    target: null, kind: "num" },
-  { code: "Cu",      name: "Copper",        unit: "ppm",      method: "ASTM D5185",  warn: 15,    alarm: 35,    target: null, kind: "num" },
-  { code: "Pb",      name: "Lead (100LL)",  unit: "ppm",      method: "ASTM D5185",  warn: 8000,  alarm: 12000, target: null, kind: "num" },
-  { code: "Ni",      name: "Nickel",        unit: "ppm",      method: "ASTM D5185",  warn: 3,     alarm: 6,     target: null, kind: "num" },
-  { code: "Si",      name: "Silicon",       unit: "ppm",      method: "ASTM D5185",  warn: 15,    alarm: 30,    target: null, kind: "num" },
-  { code: "Visc100", name: "Visc @ 100°C",  unit: "cSt",      method: "ASTM D445",   warn: "±10%",alarm: "±15%",target: 19,   kind: "pct" },
-  { code: "H2O",     name: "Water",         unit: "ppm",      method: "ASTM D6304",  warn: 200,   alarm: 500,   target: null, kind: "num" },
-  { code: "Fuel",    name: "Fuel Dilution", unit: "%",        method: "GC",          warn: 2,     alarm: 4,     target: null, kind: "num" },
+  { code: "Fe",      name: "Iron",          unit: "ppm",      method: "ASTM D5185",  warn: 35,    alarm: 65,    target: null, kind: "num", paramSet: "aviation" },
+  { code: "Cr",      name: "Chromium",      unit: "ppm",      method: "ASTM D5185",  warn: 5,     alarm: 10,    target: null, kind: "num", paramSet: "aviation" },
+  { code: "Al",      name: "Aluminum",      unit: "ppm",      method: "ASTM D5185",  warn: 8,     alarm: 15,    target: null, kind: "num", paramSet: "aviation" },
+  { code: "Cu",      name: "Copper",        unit: "ppm",      method: "ASTM D5185",  warn: 15,    alarm: 35,    target: null, kind: "num", paramSet: "aviation" },
+  { code: "Pb",      name: "Lead (100LL)",  unit: "ppm",      method: "ASTM D5185",  warn: 8000,  alarm: 12000, target: null, kind: "num", paramSet: "aviation" },
+  { code: "Ni",      name: "Nickel",        unit: "ppm",      method: "ASTM D5185",  warn: 3,     alarm: 6,     target: null, kind: "num", paramSet: "aviation" },
+  { code: "Si",      name: "Silicon",       unit: "ppm",      method: "ASTM D5185",  warn: 15,    alarm: 30,    target: null, kind: "num", paramSet: "aviation" },
+  { code: "Visc100", name: "Visc @ 100°C",  unit: "cSt",      method: "ASTM D445",   warn: "±10%",alarm: "±15%",target: 19,   kind: "pct", paramSet: "aviation" },
+  { code: "H2O",     name: "Water",         unit: "ppm",      method: "ASTM D6304",  warn: 200,   alarm: 500,   target: null, kind: "num", paramSet: "aviation" },
+  { code: "Fuel",    name: "Fuel Dilution", unit: "%",        method: "GC",          warn: 2,     alarm: 4,     target: null, kind: "num", paramSet: "aviation" },
 ];
+
+// Diesel fuel parameters (SANS 342:2016 panel). Uses min / max / range
+// semantics with binary PASS/FAIL evaluation. `group` classifies each
+// parameter into the section it renders under on the SANS-style report.
+const DIESEL_PARAMS = [
+  // Critical Properties (the section that drives overall PASS/FAIL).
+  { code: "FlashPt",     name: "Flash Point",            unit: "°C",    method: "ASTM D93C",         group: "critical",    dir: "min",   min: 55,                paramSet: "diesel" },
+  { code: "WaterCt",     name: "Water Content",          unit: "ppm",   method: "ASTM D6304",        group: "critical",    dir: "max",   max: 350,               paramSet: "diesel" },
+  { code: "TotalContam", name: "Total Contamination",    unit: "mg/kg", method: "IP440",             group: "critical",    dir: "max",   max: 24,                paramSet: "diesel" },
+  { code: "Sulphur",     name: "Sulphur",                unit: "ppm",   method: "ASTM D4294",        group: "critical",    dir: "max",   max: 50,                paramSet: "diesel" },
+  { code: "Density20",   name: "Density (@ 20°C)",       unit: "kg/m³", method: "ASTM D7777",        group: "critical",    dir: "min",   min: 800,               paramSet: "diesel" },
+  { code: "T90Dist",     name: "T90 Distillation",       unit: "°C",    method: "based on ASTM D86", group: "critical",    dir: "max",   max: 362,               paramSet: "diesel" },
+  { code: "KinVisc40",   name: "Kinematic Visc @ 40°C",  unit: "mm²/s", method: "based on ASTM D445",group: "critical",    dir: "range", min: 2.0, max: 5.3,     paramSet: "diesel" },
+  // Particle Count — ISO 4406
+  { code: "P_4um",       name: "> 4 µm Particle Count",  unit: "",      method: "ISO 4406",          group: "particle",    dir: "info",                          paramSet: "diesel" },
+  { code: "P_6um",       name: "> 6 µm Particle Count",  unit: "",      method: "ISO 4406",          group: "particle",    dir: "info",                          paramSet: "diesel" },
+  { code: "P_14um",      name: "> 14 µm Particle Count", unit: "",      method: "ISO 4406",          group: "particle",    dir: "info",                          paramSet: "diesel" },
+  { code: "ISO4406",     name: "ISO 4406 Code",          unit: "",      method: "ISO 4406",          group: "particle",    dir: "info",                          paramSet: "diesel" },
+  // Elemental — ASTM D4294 (additives + trace metals)
+  { code: "El_Sulphur",  name: "Sulphur",                unit: "ppm",   method: "ASTM D4294",        group: "elemental",   dir: "info",                          paramSet: "diesel" },
+  { code: "El_Fe",       name: "Iron",                   unit: "ppm",   method: "ASTM D4294",        group: "elemental",   dir: "info",                          paramSet: "diesel" },
+  { code: "El_Al",       name: "Aluminium",              unit: "ppm",   method: "ASTM D4294",        group: "elemental",   dir: "info",                          paramSet: "diesel" },
+  { code: "El_Mg",       name: "Magnesium",              unit: "ppm",   method: "ASTM D4294",        group: "elemental",   dir: "info",                          paramSet: "diesel" },
+  { code: "El_Zn",       name: "Zinc",                   unit: "ppm",   method: "ASTM D4294",        group: "elemental",   dir: "info",                          paramSet: "diesel" },
+  { code: "El_Pb",       name: "Lead",                   unit: "ppm",   method: "ASTM D4294",        group: "elemental",   dir: "info",                          paramSet: "diesel" },
+  { code: "El_Si",       name: "Silicon",                unit: "ppm",   method: "ASTM D4294",        group: "elemental",   dir: "info",                          paramSet: "diesel" },
+  { code: "El_Mn",       name: "Manganese",              unit: "ppm",   method: "ASTM D4294",        group: "elemental",   dir: "info",                          paramSet: "diesel" },
+  { code: "El_V",        name: "Vanadium",               unit: "ppm",   method: "ASTM D4294",        group: "elemental",   dir: "info",                          paramSet: "diesel" },
+  // IR Vision (FTIR fuel suite — density, cetane index, cold-filter plug)
+  { code: "IR_Density",  name: "Density",                unit: "",      method: "IR Vision",         group: "ir",          dir: "info",                          paramSet: "diesel" },
+  { code: "IR_Cetane",   name: "Cetane Index",           unit: "",      method: "IR Vision",         group: "ir",          dir: "info",                          paramSet: "diesel" },
+  { code: "IR_CFPP",     name: "CFPP",                   unit: "°C",    method: "IR Vision",         group: "ir",          dir: "info",                          paramSet: "diesel" },
+  // Distillation curve points (used to plot the chart on the report).
+  { code: "Dist_IBP",    name: "IBP — initial boiling",  unit: "°C",    method: "ASTM D86",          group: "distillation", dir: "info",                         paramSet: "diesel" },
+  { code: "Dist_T10",    name: "T10 — 10% recovered",    unit: "°C",    method: "ASTM D86",          group: "distillation", dir: "info",                         paramSet: "diesel" },
+  { code: "Dist_T50",    name: "T50 — 50% recovered",    unit: "°C",    method: "ASTM D86",          group: "distillation", dir: "info",                         paramSet: "diesel" },
+  { code: "Dist_T65",    name: "T65 — 65% recovered",    unit: "°C",    method: "ASTM D86",          group: "distillation", dir: "info",                         paramSet: "diesel" },
+  { code: "Dist_T85",    name: "T85 — 85% recovered",    unit: "°C",    method: "ASTM D86",          group: "distillation", dir: "info",                         paramSet: "diesel" },
+  { code: "Dist_T95",    name: "T95 — 95% recovered",    unit: "°C",    method: "ASTM D86",          group: "distillation", dir: "info",                         paramSet: "diesel" },
+  { code: "Dist_FBP",    name: "FBP — final boiling",    unit: "°C",    method: "ASTM D86",          group: "distillation", dir: "info",                         paramSet: "diesel" },
+];
+
+// Lookup a parameter by code from either catalog. Codes are disjoint
+// between the two catalogs by design.
+function getParam(code) {
+  return PARAM_DEFS.find(p => p.code === code) || DIESEL_PARAMS.find(p => p.code === code) || null;
+}
 
 // ============================================================
 // Instruments — modular config that powers the Log Sample workflow
@@ -97,6 +146,54 @@ const INSTRUMENTS = [
     measures: PARAM_DEFS.map(p => p.code),
     notes: "Catch-all for instruments not yet integrated. Operator types the readings in.",
   },
+  // --- Diesel fuel instruments (SANS 342:2016 panel) ----------------
+  {
+    id: "flashpoint", brand: "Atomic Oil Lab", name: "Flash Point Tester",
+    type: "ASTM D93C Pensky-Martens", measures: ["FlashPt"],
+    notes: "Closed-cup flash point — minimum 55 °C for SANS 342 compliance.",
+  },
+  {
+    id: "karlfischer", brand: "Atomic Oil Lab", name: "Karl Fischer Titrator",
+    type: "ASTM D6304 Coulometric", measures: ["WaterCt"],
+    notes: "Coulometric Karl Fischer for water content in ppm.",
+  },
+  {
+    id: "particle-iso", brand: "Atomic Oil Lab", name: "Particle Counter",
+    type: "IP440 / ISO 4406", measures: ["TotalContam","P_4um","P_6um","P_14um","ISO4406"],
+    notes: "Optical particle counter + total contamination by gravimetric filter (IP440).",
+  },
+  {
+    id: "sulphur-xrf", brand: "Atomic Oil Lab", name: "Sulphur Analyzer",
+    type: "ASTM D4294 XRF", measures: ["Sulphur"],
+    notes: "Energy-dispersive X-ray fluorescence for total sulphur in ppm.",
+  },
+  {
+    id: "densitymeter", brand: "Atomic Oil Lab", name: "Density Meter",
+    type: "ASTM D7777 Oscillating-U", measures: ["Density20"],
+    notes: "Oscillating-U-tube density at 20 °C — minimum 800 kg/m³ for SANS 342.",
+  },
+  {
+    id: "distillation", brand: "Atomic Oil Lab", name: "Distillation Unit",
+    type: "based on ASTM D86",
+    measures: ["T90Dist","Dist_IBP","Dist_T10","Dist_T50","Dist_T65","Dist_T85","Dist_T95","Dist_FBP"],
+    notes: "Atmospheric distillation reporting the IBP / T10 / T50 / T65 / T85 / T95 / FBP curve and the T90 critical limit.",
+  },
+  {
+    id: "kinvisc-d445", brand: "Atomic Oil Lab", name: "Kinematic Viscometer",
+    type: "based on ASTM D445", measures: ["KinVisc40"],
+    notes: "Capillary viscometer at 40 °C — must fall in 2.00 – 5.30 mm²/s.",
+  },
+  {
+    id: "spec-d4294", brand: "Spectro Scientific", name: "Spectroil — Elemental",
+    type: "ASTM D4294 / ICP-OES",
+    measures: ["El_Sulphur","El_Fe","El_Al","El_Mg","El_Zn","El_Pb","El_Si","El_Mn","El_V"],
+    notes: "Elemental concentration screen for additives and trace metals.",
+  },
+  {
+    id: "ir-vision", brand: "Atomic Oil Lab", name: "IR Vision",
+    type: "FTIR Diesel Suite", measures: ["IR_Density","IR_Cetane","IR_CFPP"],
+    notes: "Infrared multi-property analyzer — density, cetane index, and cold-filter plugging point.",
+  },
 ];
 
 // Sample types — each composes 1-N instruments into an analysis recipe.
@@ -108,6 +205,7 @@ const SAMPLE_TYPES = [
     description: "Standard piston-aircraft oil analysis: wear metals + condition + viscosity.",
     instruments: ["spectroil","fluidscan","minivisc"],
     defaultComponent: "Sump Drain",
+    paramSet: "aviation", report: "aviation",
   },
   {
     id: "piston-quick",
@@ -115,6 +213,7 @@ const SAMPLE_TYPES = [
     description: "Quick wear-metals screen, no condition/viscosity. Use between full panels.",
     instruments: ["spectroil"],
     defaultComponent: "Sump Drain",
+    paramSet: "aviation", report: "aviation",
   },
   {
     id: "rotax",
@@ -122,6 +221,7 @@ const SAMPLE_TYPES = [
     description: "Rotax 9-series oil and gearbox drain analysis.",
     instruments: ["spectroil","fluidscan","minivisc"],
     defaultComponent: "Sump Drain",
+    paramSet: "aviation", report: "aviation",
   },
   {
     id: "manual",
@@ -129,6 +229,17 @@ const SAMPLE_TYPES = [
     description: "Hand-keyed readings for any combination of parameters.",
     instruments: ["manual"],
     defaultComponent: "Sump Drain",
+    paramSet: "aviation", report: "aviation",
+  },
+  // --- Diesel fuel sample types (SANS 342:2016) ---------------------
+  {
+    id: "diesel-cf1",
+    label: "Diesel — Sulphur Low Grade (CF1)",
+    description: "SANS 342:2016 CF1 panel. Critical properties + ISO 4406 particle count + elemental + IR Vision + distillation curve + filter patch photo.",
+    instruments: ["flashpoint","karlfischer","particle-iso","sulphur-xrf","densitymeter","distillation","kinvisc-d445","spec-d4294","ir-vision"],
+    defaultComponent: "Diesel Generator",
+    paramSet: "diesel", report: "diesel", standard: "SANS 342:2016",
+    acceptsFilterPatch: true,
   },
 ];
 
@@ -268,6 +379,53 @@ function resolveResults(rawResults, assetClass) {
   }).filter(Boolean);
 }
 
+// ---- Diesel evaluation (SANS 342:2016 PASS/FAIL semantics) ---------
+
+function evalDieselStatus(param, value) {
+  if (!param || param.dir === "info") return null;
+  if (value == null || value === "" || (typeof value === "number" && isNaN(value))) return null;
+  if (typeof value === "string" && param.dir !== "info") return null;  // codes like "21/19/18" — info only
+  const v = Number(value);
+  if (param.dir === "min")   return v >= param.min ? "pass" : "fail";
+  if (param.dir === "max")   return v <= param.max ? "pass" : "fail";
+  if (param.dir === "range") return (v >= param.min && v <= param.max) ? "pass" : "fail";
+  return null;
+}
+
+// Mirror of resolveResults for the diesel catalog. Returns one row per
+// raw reading present, joined with its DIESEL_PARAMS definition and
+// the binary pass/fail evaluation. Preserves the DIESEL_PARAMS order
+// so report sections render in the spec order.
+function resolveDieselResults(rawResults) {
+  if (!Array.isArray(rawResults)) return [];
+  return DIESEL_PARAMS.map(p => {
+    const raw = rawResults.find(r => r.code === p.code);
+    if (raw == null) return null;
+    const row = { ...p, value: raw.value };
+    row.status = evalDieselStatus(row, raw.value);
+    return row;
+  }).filter(Boolean);
+}
+
+// Overall PASS/FAIL verdict from a resolved diesel result set. Driven
+// only by the Critical Properties group — particle / elemental / IR /
+// distillation are informational.
+function dieselVerdict(resolved) {
+  const critical = resolved.filter(r => r.group === "critical" && r.status);
+  if (critical.length === 0) return null;
+  return critical.every(r => r.status === "pass") ? "PASS" : "FAIL";
+}
+
+// Resolve which sample type (and therefore param set / report style)
+// a sample belongs to. Defaults to piston-oil for legacy rows.
+function getSampleType(sample) {
+  const id = sample?.sampleType || "piston-oil";
+  return SAMPLE_TYPES.find(t => t.id === id) || SAMPLE_TYPES[0];
+}
+function isDieselSample(sample) {
+  return getSampleType(sample).paramSet === "diesel";
+}
+
 // Backwards-compatible name used by screens that haven't been switched
 // to resolveResults yet.
 function makeTestResults(sample) {
@@ -331,10 +489,13 @@ function recentPublished(n = 6) {
 }
 
 Object.assign(window, {
-  ASSET_CLASSES, ROLES, COND, OILS, PARAM_DEFS, INSTRUMENTS, SAMPLE_TYPES,
+  ASSET_CLASSES, ROLES, COND, OILS, PARAM_DEFS, DIESEL_PARAMS, INSTRUMENTS, SAMPLE_TYPES,
   scoreToCode, fmtDate, fmtShortDate, fmtTime,
   resolveResults, makeTestResults, makeTrend, evalRule,
   getLimits, setLimit, resetLimits,
   getRules, saveRule, deleteRule, nextRuleId,
   fleetCounts, recentPublished,
+  // Diesel helpers
+  getParam, evalDieselStatus, resolveDieselResults, dieselVerdict,
+  getSampleType, isDieselSample,
 });

@@ -54,12 +54,13 @@ function ScreenSamples({ siteFilter, focus, setRoute }) {
         <div className="card-body no-pad">
           <table className="table">
             <thead><tr>
-              <th>Sample</th><th>Asset</th><th>Site</th><th>Component</th><th>Received</th><th>Score</th><th>Flags</th><th>Analyst</th><th>Status</th>
+              <th>Sample</th><th>Type</th><th>Asset</th><th>Site</th><th>Component</th><th>Received</th><th>Score</th><th>Flags</th><th>Analyst</th><th>Status</th>
             </tr></thead>
             <tbody>
               {list.slice(0, 40).map(s => (
                 <tr key={s.id} onClick={() => focus(s.id, "sample")}>
                   <td className="mono t-id">{s.id}</td>
+                  <td><SampleTypeTag sample={s} /></td>
                   <td>{s.assetName} <span className="mono muted">· {s.assetTag}</span></td>
                   <td className="t-muted">{s.siteName}</td>
                   <td>{s.component}</td>
@@ -76,6 +77,12 @@ function ScreenSamples({ siteFilter, focus, setRoute }) {
       </div>
     </div>
   );
+}
+
+// Small tag that distinguishes diesel samples from aviation oil at a glance.
+function SampleTypeTag({ sample }) {
+  const isDiesel = window.isDieselSample(sample);
+  return <Tag tone={isDiesel ? "accent" : "neutral"}>{isDiesel ? "DIESEL" : "OIL"}</Tag>;
 }
 
 function ScreenAssets({ siteFilter, focus }) {

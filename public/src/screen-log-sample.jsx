@@ -19,6 +19,8 @@ function ScreenLogSample({ refresh, setRoute, focus }) {
   const [priority, setPriority] = React.useState("STD");
   const [analyst, setAnalyst]   = React.useState("D. Vaughn");
   const [readings, setReadings] = React.useState({});       // { paramCode: { value, instrumentId } }
+  const [filterPatch, setFilterPatch] = React.useState(null);
+  const [noteText, setNoteText]   = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState(null);
 
@@ -42,9 +44,15 @@ function ScreenLogSample({ refresh, setRoute, focus }) {
     setError(null); setSubmitting(true);
     try {
       // Pack instrument readings into the wire shape the server expects.
+      // Numeric params get coerced to Number; text codes (ISO 4406) stay strings.
       const results = Object.entries(readings)
         .filter(([, r]) => r.value !== "" && r.value != null)
-        .map(([code, r]) => ({ code, value: Number(r.value), instrument: r.instrumentId }));
+        .map(([c, r]) => {
+          const p = window.getParam(c);
+          const isText = p && p.dir === "info" && p.code === "ISO4406";
+          const value = isText ? String(r.value) : Number(r.value);
+          return { code: c, value, instrument: r.instrumentId };
+        });
       const anyResults = results.length > 0;
       const sample = {
         assetId: engine.id,
@@ -57,6 +65,9 @@ function ScreenLogSample({ refresh, setRoute, focus }) {
         analyst,
         flags: derivedFlags(readings),
         results: anyResults ? results : null,
+        sampleType: typeId,
+        filterPatch: sampleType.acceptsFilterPatch ? filterPatch : null,
+        note: noteText || null,
       };
       const res = await window.api.createSample(sample);
       // Refresh by re-running bootstrap so SAMPLES updates with the new row.
@@ -144,32 +155,33 @@ function ScreenLogSample({ refresh, setRoute, focus }) {
 
       {/* One card per instrument, holding its parameter inputs. */}
       {instruments.map(inst => {
-        const params = inst.measures.map(code => window.PARAM_DEFS.find(p => p.code === code)).filter(Boolean);
+        const params = inst.measures.map(code => window.getParam(code)).filter(Boolean);
         return (
           <div key={inst.id} className="card" style={{ marginBottom: 16 }}>
             <div className="card-head">
               <span className="card-title">{inst.name}</span>
               <span className="card-sub mono">{inst.brand.toUpperCase()} · {inst.type.toUpperCase()}</span>
             </div>
-            <div className="card-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 12 }}>
-              {params.map(p => (
-                <div key={p.code} className="ls-param">
-                  <div className="ls-param-head">
-                    <span className="mono t-id">{p.code}</span>
-                    <span className="ls-param-name">{p.name}</span>
+            <div className="card-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+              {params.map(p => {
+                const isText = p.dir === "info" && (p.code === "ISO4406");  // codes like "21/19/18"
+                return (
+                  <div key={p.code} className="ls-param">
+                    <div className="ls-param-head">
+                      <span className="mono t-id">{p.code}</span>
+                      <span className="ls-param-name">{p.name}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <input className="ls-input mono" type={isText ? "text" : "number"} step="any"
+                             value={readings[p.code]?.value ?? ""}
+                             onChange={e => setReading(p.code, inst.id, e.target.value)}
+                             placeholder={limitPlaceholder(p)} />
+                      <span className="mono t-muted" style={{ fontSize: 11 }}>{p.unit}</span>
+                    </div>
+                    <div className="mono ls-param-lim">{limitDescription(p)}</div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <input className="ls-input mono" type="number" step="any"
-                           value={readings[p.code]?.value ?? ""}
-                           onChange={e => setReading(p.code, inst.id, e.target.value)}
-                           placeholder={typeof p.warn === "number" ? `< ${p.warn}` : "—"} />
-                    <span className="mono t-muted" style={{ fontSize: 11 }}>{p.unit}</span>
-                  </div>
-                  <div className="mono ls-param-lim">
-                    warn {p.warn} · alarm {p.alarm}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             <div className="card-body" style={{ paddingTop: 0, fontSize: 11.5, color: "var(--ink-3)" }}>
               {inst.notes}
@@ -177,6 +189,39 @@ function ScreenLogSample({ refresh, setRoute, focus }) {
           </div>
         );
       })}
+
+      {/* Filter patch upload — only for sample types that accept one (diesel). */}
+      {sampleType.acceptsFilterPatch && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-head">
+            <span className="card-title">Filter Patch — IP440</span>
+            <span className="card-sub mono">OPTIONAL · IMAGE OF THE PATCH</span>
+          </div>
+          <div className="card-body" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+            <label className="btn btn-ghost" style={{ cursor: "pointer" }}>
+              <Icon name="plus" size={12}/> {filterPatch ? "Replace photo" : "Upload photo"}
+              <input type="file" accept="image/*" style={{ display: "none" }}
+                     onChange={async e => {
+                       const f = e.target.files?.[0];
+                       if (!f) return;
+                       const url = await downsizeImage(f, 800, 0.82);
+                       setFilterPatch(url);
+                     }} />
+            </label>
+            {filterPatch && <button className="btn btn-ghost" onClick={() => setFilterPatch(null)}>Remove</button>}
+            {filterPatch && <img src={filterPatch} alt="Filter patch preview" style={{ height: 120, borderRadius: 6, border: "1px solid var(--line)" }} />}
+            {!filterPatch && <span style={{ fontSize: 12, color: "var(--ink-3)" }}>Drag in the JPEG you took at the gravimetric filter. Auto-downsized to 800 px wide.</span>}
+          </div>
+        </div>
+      )}
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head"><span className="card-title">Note (optional)</span></div>
+        <div className="card-body">
+          <input className="ls-input" placeholder="Any context worth preserving on the report"
+                 value={noteText} onChange={e => setNoteText(e.target.value)} />
+        </div>
+      </div>
 
       {/* Derived preview */}
       <div className="card">
@@ -247,6 +292,48 @@ function derivedFlags(readings) {
   if (v("Fuel") >= 2) flags.push("Fuel%");
   if (v("Si") >= 15)  flags.push("Si↑");
   return flags;
+}
+
+// Limit description rendered below each instrument-input cell.
+function limitDescription(p) {
+  if (!p) return "—";
+  if (p.dir === "min")   return `min ${p.min}${p.unit ? " " + p.unit : ""}`;
+  if (p.dir === "max")   return `max ${p.max}${p.unit ? " " + p.unit : ""}`;
+  if (p.dir === "range") return `${p.min} – ${p.max}${p.unit ? " " + p.unit : ""}`;
+  if (typeof p.warn === "number" || typeof p.alarm === "number") return `warn ${p.warn} · alarm ${p.alarm}`;
+  return "informational only";
+}
+function limitPlaceholder(p) {
+  if (!p) return "—";
+  if (p.dir === "min")   return `≥ ${p.min}`;
+  if (p.dir === "max")   return `≤ ${p.max}`;
+  if (p.dir === "range") return `${p.min}–${p.max}`;
+  if (typeof p.warn === "number") return `< ${p.warn}`;
+  return "—";
+}
+
+// Client-side resize for filter-patch uploads. Mirrors the helper in
+// screen-sample.jsx but kept local so Log Sample is self-contained.
+function downsizeImage(file, maxW = 800, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("invalid image"));
+      img.onload = () => {
+        const ratio = img.width > maxW ? maxW / img.width : 1;
+        const w = Math.round(img.width * ratio);
+        const h = Math.round(img.height * ratio);
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 window.ScreenLogSample = ScreenLogSample;

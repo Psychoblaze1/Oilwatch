@@ -23,6 +23,13 @@ const api = {
       body: JSON.stringify({ status }),
     });
   },
+  async attachFilterPatch(id, dataUrl) {
+    await fetch(`/api/samples/${encodeURIComponent(id)}/filter-patch`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dataUrl }),
+    });
+  },
 
   async ackAlarm(id, acknowledged = true) {
     await fetch(`/api/alarms/${encodeURIComponent(id)}`, {

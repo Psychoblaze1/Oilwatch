@@ -11,9 +11,10 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
   const sample = { ...baseSample, status };
 
   const asset = window.ASSETS.find(a => a.id === sample.assetId) || {};
-  const results = sample.results
-    ? window.resolveResults(sample.results, asset.class)
-    : window.makeTestResults(sample);
+  const isDiesel = window.isDieselSample(sample);
+  const results = isDiesel
+    ? window.resolveDieselResults(sample.results || [])
+    : (sample.results ? window.resolveResults(sample.results, asset.class) : window.makeTestResults(sample));
   const dims = asset.dimensions || [];
   const cond = window.COND[sample.code] || window.COND[1];
 
@@ -28,6 +29,25 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
     catch (e) { console.error("setSampleStatus failed", e); }
     refresh && refresh();
   };
+
+  // Render the diesel sample view (SANS 342:2016 panel) instead of the
+  // aviation oil layout when the sample type calls for it.
+  if (isDiesel) {
+    return (
+      <DieselSampleView
+        sample={sample}
+        asset={asset}
+        results={results}
+        status={status}
+        canApprove={canApprove}
+        canPublish={canPublish}
+        updateStatus={updateStatus}
+        back={back}
+        openAI={openAI}
+        refresh={refresh}
+      />
+    );
+  }
 
   return (
     <div className="page">
@@ -235,3 +255,319 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
 }
 
 window.ScreenSample = ScreenSample;
+
+// ============================================================
+// Diesel sample view (SANS 342:2016 layout)
+// ============================================================
+function DieselSampleView({ sample, asset, results, status, canApprove, canPublish, updateStatus, back, openAI, refresh }) {
+  const site = window.SITES.find(s => s.id === asset?.site) || {};
+  const sampleType = window.getSampleType(sample);
+  const standard = sampleType.standard || "SANS 342:2016";
+  const verdict = window.dieselVerdict(results) || (results.length === 0 ? null : "PASS");
+
+  const critical = results.filter(r => r.group === "critical");
+  const particle = results.filter(r => r.group === "particle");
+  const elemental = results.filter(r => r.group === "elemental");
+  const ir = results.filter(r => r.group === "ir");
+  const distillation = results.filter(r => r.group === "distillation");
+
+  const onFile = async (file) => {
+    if (!file) return;
+    const dataUrl = await downsizeImage(file, 800, 0.82);
+    const idx = window.SAMPLES.findIndex(s => s.id === sample.id);
+    if (idx >= 0) window.SAMPLES[idx] = { ...window.SAMPLES[idx], filterPatch: dataUrl };
+    try { await window.api.attachFilterPatch(sample.id, dataUrl); }
+    catch (e) { console.error("filter patch upload failed", e); }
+    refresh && refresh();
+  };
+
+  return (
+    <div className="page">
+      <div className="page-header">
+        <div>
+          <button className="btn btn-sm btn-ghost" onClick={back} style={{ marginBottom: 8 }}>
+            <Icon name="chevron-l" size={12}/> Samples
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <h1 className="page-title">{sample.id}</h1>
+            <Tag tone="accent">DIESEL</Tag>
+            <span className="status-pill" data-s={status}>{status}</span>
+            {sample.priority === "RUSH" && <Tag tone="accent">RUSH</Tag>}
+          </div>
+          <div className="page-sub mono" style={{ letterSpacing: 0.06, marginTop: 6 }}>
+            {(site.name || sample.siteName || "—").toUpperCase()} · {(sample.component || "—").toUpperCase()} · {sampleType.label.toUpperCase()} · RECEIVED {window.fmtDate(sample.receivedAt).toUpperCase()}
+          </div>
+        </div>
+        <div className="page-actions">
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)", letterSpacing: "0.05em", marginRight: 4 }}>
+            <Icon name="barcode" size={12} style={{ verticalAlign: "middle", marginRight: 4 }}/>{sample.barcode}
+          </span>
+          <button className="btn btn-primary" onClick={() => window.exportSamplePDF(sample)}>
+            <Icon name="download" size={14}/> Print Report
+          </button>
+        </div>
+      </div>
+
+      {/* Sample Information grid — mirrors the SANS report layout */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head"><span className="card-title">Sample Information</span></div>
+        <div className="card-body no-pad">
+          <div className="dsl-info">
+            <DslInfoCell label="Company name" value={site.name || sample.siteName} />
+            <DslInfoCell label="Site"         value={site.region} />
+            <DslInfoCell label="Component"    value={sample.component} />
+            <DslInfoCell label="Equipment"    value={asset?.name || "None"} />
+            <DslInfoCell label="Sample Date"  value={window.fmtDate(sample.receivedAt)} />
+            <DslInfoCell label="Diesel Type"  value={sampleType.label.replace(/^Diesel\s*[—-]\s*/, "")} />
+            <DslInfoCell label="Sample"       value={sample.id} />
+            <DslInfoCell label="Note"         value={sample.note || "None"} />
+          </div>
+        </div>
+      </div>
+
+      {/* Verdict pill */}
+      {verdict && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, margin: "16px 0 22px" }}>
+          <span className={`dsl-verdict ${verdict === "PASS" ? "ok" : "fail"}`}>{verdict}</span>
+          <div style={{ fontSize: 13, color: "var(--ink-2)" }}>
+            This sample {verdict === "PASS" ? "conforms to" : "does not conform to"} <b>{standard}</b> standards.
+          </div>
+        </div>
+      )}
+
+      {/* Critical Properties */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <span className="card-title">Critical Properties</span>
+          <span className="card-sub mono">{critical.length} TESTS · {standard.toUpperCase()}</span>
+        </div>
+        <div className="card-body no-pad">
+          {critical.length === 0 ? (
+            <div style={{ padding: 28, textAlign: "center", color: "var(--ink-3)", fontSize: 13 }}>
+              No critical-property readings yet — sample is in DRAFT.
+            </div>
+          ) : (
+            <table className="table">
+              <thead><tr>
+                <th>Test</th><th>Result</th><th>Limit</th><th>Status</th><th>Method</th>
+              </tr></thead>
+              <tbody>
+                {critical.map(r => (
+                  <tr key={r.code}>
+                    <td>{r.name}</td>
+                    <td className="mono" style={{ fontWeight: 600 }}>{fmtNumOrStr(r.value)}{r.unit ? " " + r.unit : ""}</td>
+                    <td className="mono t-muted">{dieselLimitLabel(r)}</td>
+                    <td><span className={`dsl-bar ${r.status === "pass" ? "ok" : r.status === "fail" ? "fail" : ""}`}>{(r.status || "—").toUpperCase()}</span></td>
+                    <td className="mono t-muted">{r.method}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* Particle / Elemental side-by-side */}
+      <div className="grid-2" style={{ marginBottom: 16 }}>
+        <DslSimpleTable title="Particle Count — ISO 4406" leftLabel="Test" rightLabel="Result"
+          rows={particle.map(r => ({ label: r.name, value: fmtNumOrStr(r.value) }))} />
+        <DslSimpleTable title="Elemental — ASTM D4294" leftLabel="Additive" rightLabel="Concentration"
+          rows={elemental.map(r => ({ label: r.name, value: r.value != null ? `${fmtNumOrStr(r.value)} ppm` : "—" }))} />
+      </div>
+
+      {/* IR Vision / Distillation / Filter Patch row */}
+      <div className="grid-3" style={{ marginBottom: 16 }}>
+        <DslSimpleTable title="IR Vision Data" leftLabel="Parameter" rightLabel="Value"
+          rows={ir.map(r => ({ label: r.name, value: r.value != null ? `${fmtNumOrStr(r.value)}${r.unit ? " " + r.unit : ""}` : "—" }))} />
+
+        <div className="card">
+          <div className="card-head"><span className="card-title">Distillation Curve</span></div>
+          <div className="card-body" style={{ padding: 12 }}>
+            <DistillationChartSVG points={distillation} />
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-head">
+            <span className="card-title">Filter Patch — IP440</span>
+            <label className="btn btn-sm btn-ghost" style={{ marginLeft: "auto", cursor: "pointer" }}>
+              <Icon name="plus" size={12}/> {sample.filterPatch ? "Replace" : "Upload"}
+              <input type="file" accept="image/*" style={{ display: "none" }}
+                     onChange={e => onFile(e.target.files?.[0])}/>
+            </label>
+          </div>
+          <div className="card-body" style={{ padding: 12, display: "grid", placeItems: "center" }}>
+            {sample.filterPatch
+              ? <img src={sample.filterPatch} alt="Filter patch" style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 6 }} />
+              : <div style={{ width: "100%", aspectRatio: "1 / 1", maxHeight: 200,
+                              display: "grid", placeItems: "center", background: "var(--bg-sunken)",
+                              border: "1px dashed var(--line)", borderRadius: 6,
+                              color: "var(--ink-3)", fontSize: 12 }}>
+                  No filter-patch photo on file
+                </div>}
+          </div>
+        </div>
+      </div>
+
+      {/* Internal workflow actions — kept off the printed report. */}
+      <div className="card" style={{ marginTop: 16, borderColor: "var(--accent-line)" }}>
+        <div className="card-head">
+          <span className="card-title">Internal Workflow Actions</span>
+          <span className="card-sub mono">NOT INCLUDED IN PRINTED REPORT</span>
+        </div>
+        <div className="card-body" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 12.5, color: "var(--ink-2)", flex: 1, minWidth: 320 }}>
+            Current status: <span className="status-pill" data-s={status}>{status}</span>.
+            {canApprove && " Approve to move into the publish queue, or reject to remove it from the lifecycle."}
+            {canPublish && " Publish makes this report visible to the operator."}
+            {!canApprove && !canPublish && " No workflow actions available at this status / role."}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {canApprove && <button className="btn" onClick={() => updateStatus("REJECTED")}>Reject</button>}
+            {canApprove && <button className="btn btn-primary" onClick={() => updateStatus("APPROVED")}><Icon name="check" size={14}/> Approve</button>}
+            {canPublish && <button className="btn btn-primary" onClick={() => updateStatus("PUBLISHED")}><Icon name="check" size={14}/> Publish to operator</button>}
+          </div>
+        </div>
+      </div>
+
+      <style>{`
+        .dsl-info { display: grid; grid-template-columns: repeat(4, 1fr); }
+        .dsl-info > div { padding: 10px 14px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+        .dsl-info > div:nth-child(4n) { border-right: 0; }
+        .dsl-info > div:nth-last-child(-n+4) { border-bottom: 0; }
+        .dsl-info-lbl { font-size: 10px; letter-spacing: 0.1em; color: var(--ink-3); text-transform: uppercase; font-family: var(--mono); }
+        .dsl-info-val { font-size: 13px; color: var(--ink); margin-top: 4px; word-break: break-word; }
+        .dsl-verdict {
+          display: inline-block; padding: 8px 26px;
+          border-radius: 999px; font-weight: 700; font-size: 16px;
+          letter-spacing: 0.06em; color: #fff;
+        }
+        .dsl-verdict.ok { background: var(--ok); }
+        .dsl-verdict.fail { background: var(--crit); }
+        .dsl-bar {
+          display: inline-block; min-width: 64px; padding: 4px 10px; border-radius: 4px;
+          font-family: var(--mono); font-size: 11px; font-weight: 600;
+          color: #fff; text-align: center; background: var(--ink-4);
+        }
+        .dsl-bar.ok   { background: var(--ok); }
+        .dsl-bar.fail { background: var(--crit); }
+      `}</style>
+    </div>
+  );
+}
+
+function DslInfoCell({ label, value }) {
+  return (
+    <div>
+      <div className="dsl-info-lbl">{label}</div>
+      <div className="dsl-info-val">{value || "—"}</div>
+    </div>
+  );
+}
+
+function DslSimpleTable({ title, leftLabel, rightLabel, rows }) {
+  return (
+    <div className="card">
+      <div className="card-head"><span className="card-title">{title}</span></div>
+      <div className="card-body no-pad">
+        {rows.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: "var(--ink-3)", fontSize: 12.5 }}>—</div>
+        ) : (
+          <table className="table">
+            <thead><tr><th>{leftLabel}</th><th style={{ textAlign: "right" }}>{rightLabel}</th></tr></thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i}>
+                  <td>{r.label}</td>
+                  <td className="mono" style={{ textAlign: "right" }}>{r.value}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DistillationChartSVG({ points }) {
+  const W = 280, H = 180, padL = 32, padR = 6, padT = 8, padB = 24;
+  const filled = (points || []).filter(p => p.value != null && !isNaN(Number(p.value)));
+  if (filled.length < 2) {
+    return <div style={{ height: H, display: "grid", placeItems: "center", color: "var(--ink-3)", fontSize: 12 }}>
+      Not enough points to plot.
+    </div>;
+  }
+  const vmin = Math.min(...filled.map(p => Number(p.value)));
+  const vmax = Math.max(...filled.map(p => Number(p.value)));
+  const pad  = (vmax - vmin) * 0.1 || 10;
+  const lo = Math.floor((vmin - pad) / 10) * 10;
+  const hi = Math.ceil((vmax + pad) / 10) * 10;
+  const xAt = i => padL + (W - padL - padR) * (i / (filled.length - 1));
+  const yAt = v => padT + (H - padT - padB) * (1 - (v - lo) / (hi - lo));
+  const path = filled.map((p, i) => (i === 0 ? "M" : "L") + xAt(i).toFixed(1) + " " + yAt(Number(p.value)).toFixed(1)).join(" ");
+  const labelMap = { Dist_IBP: "IBP", Dist_T10: "T10", Dist_T50: "T50", Dist_T65: "T65", Dist_T85: "T85", Dist_T95: "T95", Dist_FBP: "FBP" };
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="xMidYMid meet">
+      {[0, 0.25, 0.5, 0.75, 1].map(t => {
+        const y = padT + t * (H - padT - padB);
+        const v = hi - t * (hi - lo);
+        return (<g key={t}>
+          <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="var(--line)" strokeWidth="0.4" />
+          <text x={padL - 4} y={y + 3} textAnchor="end" style={{ fontSize: 9, fill: "var(--ink-3)", fontFamily: "var(--mono)" }}>{Math.round(v)}</text>
+        </g>);
+      })}
+      <path d={path} fill="none" stroke="var(--accent)" strokeWidth="1.8" />
+      {filled.map((p, i) => (
+        <circle key={i} cx={xAt(i)} cy={yAt(Number(p.value))} r="3" fill="var(--accent)" />
+      ))}
+      {filled.map((p, i) => (
+        <text key={"x"+i} x={xAt(i)} y={H - padB + 14} textAnchor="middle" style={{ fontSize: 9, fill: "var(--ink-3)", fontFamily: "var(--mono)" }}>
+          {labelMap[p.code] || p.label || p.code}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+// ---- Small helpers used by the diesel view -------------------------
+
+function fmtNumOrStr(v) {
+  if (v == null) return "—";
+  if (typeof v === "number") return Number.isInteger(v) ? String(v) : v.toFixed(2);
+  return String(v);
+}
+
+function dieselLimitLabel(p) {
+  if (!p) return "—";
+  if (p.dir === "min")   return `≥ ${p.min} ${p.unit} min`.trim();
+  if (p.dir === "max")   return `≤ ${p.max} ${p.unit} max`.trim();
+  if (p.dir === "range") return `${p.min} – ${p.max} ${p.unit}`.trim();
+  return "—";
+}
+
+// Client-side resize that the filter-patch upload uses to keep
+// payloads reasonable. Returns a JPEG data URL.
+function downsizeImage(file, maxW = 800, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("invalid image"));
+      img.onload = () => {
+        const ratio = img.width > maxW ? maxW / img.width : 1;
+        const w = Math.round(img.width * ratio);
+        const h = Math.round(img.height * ratio);
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+window.DieselSampleView = DieselSampleView;

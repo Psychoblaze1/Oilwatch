@@ -562,10 +562,388 @@
 
   // ---- Public entry points ------------------------------------------
 
+  // ============================================================
+  // Diesel sample report (SANS 342:2016 layout)
+  // ============================================================
+
+  // Format a parameter limit as a printable string ("≥ 55 °C min",
+  // "≤ 350.0 ppm max", "2.00 - 5.30 mm²/s").
+  function limitLabel(p) {
+    if (!p) return "—";
+    if (p.dir === "min")   return `≥ ${fmt(p.min)} ${p.unit} min`.trim();
+    if (p.dir === "max")   return `≤ ${fmt(p.max)} ${p.unit} max`.trim();
+    if (p.dir === "range") return `${fmt(p.min)} - ${fmt(p.max)} ${p.unit}`.trim();
+    return "—";
+  }
+
+  // Big green/red verdict pill + accompanying sentence.
+  function passFailPill(doc, y, verdict, standard) {
+    const W = 110, H = 22;
+    const x = (PAGE.W - W) / 2;
+    const fill = verdict === "PASS" ? OK : CRIT;
+    doc.setFillColor(...fill);
+    doc.roundedRect(x, y, W, H, 6, 6, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text(verdict, x + W / 2, y + 15, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(...INK_2);
+    const sentence = verdict === "PASS"
+      ? `This sample conforms to ${standard || "SANS 342:2016"} standards.`
+      : `This sample does not conform to ${standard || "SANS 342:2016"} standards.`;
+    doc.text(sentence, PAGE.W / 2, y + H + 14, { align: "center" });
+    return y + H + 22;
+  }
+
+  // Sample Information block — a 4×2 grid that mirrors the
+  // reference report exactly.
+  function sampleInfoBlock(doc, startY, sample, asset, site) {
+    let y = sectionHead(doc, startY, "Sample Information");
+    const cellW = (COL_W) / 4;
+    const ROW_H = 22;
+    const drawCell = (col, row, label, value) => {
+      const x = PAGE.M + col * cellW;
+      const yy = y + row * ROW_H;
+      doc.setDrawColor(...LINE);
+      doc.setLineWidth(0.4);
+      doc.rect(x, yy, cellW, ROW_H);
+      doc.setTextColor(...INK_3);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.text(label.toUpperCase(), x + 6, yy + 9);
+      doc.setTextColor(...INK);
+      doc.setFontSize(9);
+      const txt = doc.splitTextToSize(String(value ?? "—"), cellW - 12);
+      doc.text(txt[0] || "—", x + 6, yy + 18);
+    };
+    const dieselType = (window.SAMPLE_TYPES.find(t => t.id === sample.sampleType)?.label) || "—";
+    drawCell(0, 0, "Company name", site?.name || sample.siteName || "—");
+    drawCell(1, 0, "Site",         site?.region || "—");
+    drawCell(2, 0, "Component",    sample.component || "—");
+    drawCell(3, 0, "Equipment",    (asset && asset.name) || "None");
+    drawCell(0, 1, "Sample Date",  dateOnly(sample.receivedAt));
+    drawCell(1, 1, "Diesel Type",  dieselType.replace(/^Diesel\s*[—-]\s*/, ""));
+    drawCell(2, 1, "Sample",       sample.id ? String(sample.id).replace(/^S-?/, "") : "—");
+    drawCell(3, 1, "Note",         sample.note || "None");
+    return y + ROW_H * 2 + 14;
+  }
+
+  // Critical Properties table — Test / Result / Limit / Status bar / Method
+  function criticalPropertiesTable(doc, startY, results) {
+    const rows = results.filter(r => r.group === "critical");
+    const cols = [
+      { key: "name",   label: "Test",    w: 130, align: "left"  },
+      { key: "result", label: "Result",  w: 100, align: "left"  },
+      { key: "limit",  label: "Limit",   w: 130, align: "left"  },
+      { key: "status", label: "Status",  w: 80,  align: "center" },
+      { key: "method", label: "Method",  w: 75,  align: "left"  },
+    ];
+    const ROW_H = 22;
+    let y = startY;
+
+    // Header row
+    doc.setFillColor(...SUNKEN);
+    doc.rect(PAGE.M, y, COL_W, ROW_H, "F");
+    doc.setTextColor(...INK_2);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    let x = PAGE.M + 8;
+    for (const c of cols) {
+      const tx = c.align === "center" ? x + c.w / 2 : x;
+      doc.text(c.label.toUpperCase(), tx, y + 14, { align: c.align === "center" ? "center" : "left" });
+      x += c.w;
+    }
+    y += ROW_H;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+
+    for (const r of rows) {
+      if (y + ROW_H > PAGE.H - 60) { doc.addPage(); y = 80; }
+      doc.setDrawColor(...LINE);
+      doc.setLineWidth(0.4);
+      doc.line(PAGE.M, y + ROW_H, RIGHT, y + ROW_H);
+
+      let x = PAGE.M + 8;
+      for (const c of cols) {
+        if (c.key === "status") {
+          // Solid colored bar — green PASS or red FAIL.
+          const w = c.w - 8, h = 12;
+          const [rr, gg, bb] = r.status === "pass" ? OK : (r.status === "fail" ? CRIT : [200,200,200]);
+          doc.setFillColor(rr, gg, bb);
+          doc.rect(x, y + 5, w, h, "F");
+          doc.setTextColor(255, 255, 255);
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(9);
+          doc.text(r.status === "pass" ? "PASS" : r.status === "fail" ? "FAIL" : "—",
+                   x + w / 2, y + 14, { align: "center" });
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(10);
+        } else {
+          let txt;
+          if (c.key === "name")   txt = r.name;
+          if (c.key === "result") txt = `${fmt(r.value)}${r.unit ? " " + r.unit : ""}`;
+          if (c.key === "limit")  txt = limitLabel(r);
+          if (c.key === "method") txt = r.method || "—";
+          doc.setTextColor(c.key === "method" ? INK_3[0] : INK[0],
+                           c.key === "method" ? INK_3[1] : INK[1],
+                           c.key === "method" ? INK_3[2] : INK[2]);
+          doc.text(String(txt), x, y + 14);
+        }
+        x += c.w;
+      }
+      y += ROW_H;
+    }
+    return y + 14;
+  }
+
+  // Generic two-column table used for Particle Count, Elemental, IR
+  // Vision. Each cell is `{label, value}`. Title is rendered above.
+  function twoColTable(doc, startY, title, items, opts = {}) {
+    let y = sectionHead(doc, startY, title);
+    const W = opts.width || COL_W;
+    const X = opts.x || PAGE.M;
+    const ROW_H = 18;
+    const leftLabel = opts.leftLabel || "Test";
+    const rightLabel = opts.rightLabel || "Result";
+    // Header
+    doc.setFillColor(...SUNKEN);
+    doc.rect(X, y, W, ROW_H, "F");
+    doc.setTextColor(...INK_2);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.text(leftLabel.toUpperCase(), X + 8, y + 12);
+    doc.text(rightLabel.toUpperCase(), X + W - 8, y + 12, { align: "right" });
+    y += ROW_H;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    for (const it of items) {
+      if (y + ROW_H > PAGE.H - 60) { doc.addPage(); y = 80; }
+      doc.setDrawColor(...LINE);
+      doc.setLineWidth(0.4);
+      doc.line(X, y + ROW_H, X + W, y + ROW_H);
+      doc.setTextColor(...INK);
+      doc.text(it.label, X + 8, y + 12);
+      doc.text(String(it.value ?? "—"), X + W - 8, y + 12, { align: "right" });
+      y += ROW_H;
+    }
+    return y + 10;
+  }
+
+  // Distillation curve — small line chart drawn with jsPDF primitives.
+  function drawDistillationChart(doc, x, y, w, h, points) {
+    // Title
+    doc.setTextColor(...INK_2);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text("Distillation Curve", x, y);
+    const top = y + 8, padL = 32, padR = 6, padT = 8, padB = 22;
+    const ax = x + padL, ay = top + padT;
+    const aw = w - padL - padR, ah = h - padT - padB;
+    // Axes
+    doc.setDrawColor(...LINE);
+    doc.setLineWidth(0.5);
+    doc.line(ax, ay, ax, ay + ah);            // y-axis
+    doc.line(ax, ay + ah, ax + aw, ay + ah);  // x-axis
+
+    const vals = points.map(p => p.value).filter(v => v != null && !isNaN(v));
+    if (vals.length < 2) {
+      doc.setTextColor(...INK_3);
+      doc.setFontSize(9);
+      doc.text("Not enough distillation points to plot.", x + w/2, y + h/2, { align: "center" });
+      return;
+    }
+    const vmin = Math.min(...vals), vmax = Math.max(...vals);
+    const pad = (vmax - vmin) * 0.1 || 10;
+    const lo = Math.floor((vmin - pad) / 10) * 10;
+    const hi = Math.ceil((vmax + pad) / 10) * 10;
+
+    // Y-axis ticks (5 evenly spaced)
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...INK_3);
+    for (let t = 0; t <= 4; t++) {
+      const v = lo + ((hi - lo) * (4 - t)) / 4;
+      const yy = ay + (ah * t) / 4;
+      doc.setDrawColor(...LINE);
+      doc.setLineWidth(0.3);
+      doc.line(ax, yy, ax + aw, yy);
+      doc.setTextColor(...INK_3);
+      doc.text(String(Math.round(v)), ax - 4, yy + 2.5, { align: "right" });
+    }
+    // X-axis tick labels
+    const n = points.length;
+    for (let i = 0; i < n; i++) {
+      const xx = ax + (aw * i) / (n - 1);
+      doc.text(points[i].label, xx, ay + ah + 11, { align: "center" });
+    }
+    doc.setTextColor(...INK_3);
+    doc.text("Temperature (°C)", ax - 24, ay + ah / 2, { align: "center", angle: 90 });
+
+    // Plot
+    doc.setDrawColor(...ACCENT);
+    doc.setLineWidth(1.3);
+    const xy = points.map((p, i) => {
+      const xx = ax + (aw * i) / (n - 1);
+      const yy = ay + ah - ((p.value - lo) / (hi - lo)) * ah;
+      return [xx, yy];
+    });
+    for (let i = 1; i < xy.length; i++) {
+      doc.line(xy[i-1][0], xy[i-1][1], xy[i][0], xy[i][1]);
+    }
+    doc.setFillColor(...ACCENT);
+    for (const [xx, yy] of xy) doc.circle(xx, yy, 1.6, "F");
+  }
+
+  // Filter patch image cell — embeds the data URL or shows placeholder.
+  function drawFilterPatch(doc, x, y, w, h, dataUrl) {
+    doc.setTextColor(...INK_2);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text("Filter Patch — IP440", x, y);
+    const top = y + 8;
+    if (dataUrl && typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
+      const fmtName = /image\/png/.test(dataUrl) ? "PNG" : "JPEG";
+      // Center a square image in the cell.
+      const size = Math.min(w, h - 12);
+      try {
+        doc.addImage(dataUrl, fmtName, x + (w - size) / 2, top, size, size);
+      } catch (_) {
+        // Fallback if jsPDF can't decode (rare); render the placeholder.
+        placeholderPatch(doc, x, top, w, h - 12);
+      }
+    } else {
+      placeholderPatch(doc, x, top, w, h - 12);
+    }
+  }
+  function placeholderPatch(doc, x, y, w, h) {
+    doc.setDrawColor(...LINE);
+    doc.setLineWidth(0.5);
+    doc.rect(x, y, w, h);
+    doc.setTextColor(...INK_3);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.text("No filter-patch photo on file", x + w/2, y + h/2, { align: "center" });
+  }
+
+  // Compose the full diesel report.
+  function buildDieselReport(sample, asset, site, results) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
+    const sampleType = window.SAMPLE_TYPES.find(t => t.id === sample.sampleType) || {};
+    const standard = sampleType.standard || "SANS 342:2016";
+
+    header(doc, "DIESEL SAMPLE REPORT",
+      `Sample  ${sample.id}`, `Report date  ${dateOnly(new Date())}`);
+
+    let y = 80;
+    y = sampleInfoBlock(doc, y, sample, asset, site);
+
+    // Verdict
+    const verdict = window.dieselVerdict(results) || "PASS";
+    y = passFailPill(doc, y, verdict, standard);
+    y += 4;
+
+    // Critical Properties
+    y = sectionHead(doc, y, "Critical Properties");
+    y = criticalPropertiesTable(doc, y, results);
+
+    // Particle / Elemental side-by-side row to save vertical space.
+    const particle = results.filter(r => r.group === "particle");
+    const elem     = results.filter(r => r.group === "elemental");
+    const irRows   = results.filter(r => r.group === "ir");
+
+    const halfW = (COL_W - 16) / 2;
+    if (particle.length || elem.length) {
+      // Need enough vertical room. Page-break if not.
+      const needed = 20 + Math.max(particle.length, elem.length) * 18 + 16;
+      if (y + needed > PAGE.H - 60) { doc.addPage(); y = 80; }
+      const startY = y;
+      if (particle.length) {
+        twoColTable(doc, startY, "Particle Count — ISO 4406",
+          particle.map(r => ({ label: r.name, value: fmt(r.value) })),
+          { x: PAGE.M, width: halfW, leftLabel: "Test", rightLabel: "Result" });
+      }
+      if (elem.length) {
+        twoColTable(doc, startY, "Elemental — ASTM D4294",
+          elem.map(r => ({ label: r.name, value: r.value != null ? `${fmt(r.value)} ppm` : "—" })),
+          { x: PAGE.M + halfW + 16, width: halfW, leftLabel: "Additive", rightLabel: "Concentration" });
+      }
+      y = startY + 20 + Math.max(particle.length, elem.length) * 18 + 14;
+    }
+
+    // IR Vision Data + Distillation Curve + Filter Patch on the same row.
+    const thirdW = (COL_W - 32) / 3;
+    const blockH = 150;
+    if (y + blockH + 20 > PAGE.H - 60) { doc.addPage(); y = 80; }
+    const rowY = sectionHead(doc, y, "IR Vision Data");
+
+    // IR Vision (left column, as a tight two-col table)
+    twoColTable(doc, rowY - 16, "IR Vision Data",
+      irRows.map(r => ({ label: r.name, value: r.value != null ? `${fmt(r.value)}${r.unit ? " " + r.unit : ""}` : "—" })),
+      { x: PAGE.M, width: thirdW, leftLabel: "Parameter", rightLabel: "Value" });
+
+    // Distillation chart (middle)
+    const distillation = results.filter(r => r.group === "distillation").map(r => {
+      const labelMap = { Dist_IBP: "IBP", Dist_T10: "T10", Dist_T50: "T50", Dist_T65: "T65", Dist_T85: "T85", Dist_T95: "T95", Dist_FBP: "FBP" };
+      return { label: labelMap[r.code] || r.code, value: r.value != null ? Number(r.value) : null };
+    });
+    drawDistillationChart(doc, PAGE.M + thirdW + 16, rowY - 8, thirdW, blockH, distillation);
+
+    // Filter patch (right)
+    drawFilterPatch(doc, PAGE.M + (thirdW + 16) * 2, rowY - 8, thirdW, blockH, sample.filterPatch);
+
+    y = rowY + blockH + 8;
+
+    // Additional Information / comments
+    if (y + 60 > PAGE.H - 60) { doc.addPage(); y = 80; }
+    y = sectionHead(doc, y, "Additional Information");
+    doc.setTextColor(...INK);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text("Comments & Details", PAGE.M, y);
+    y += 14;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    doc.setTextColor(...INK_2);
+    const failedCriticals = results.filter(r => r.group === "critical" && r.status === "fail").map(r => r.name);
+    const verdictNote = verdict === "PASS"
+      ? "All critical properties within SANS 342:2016 limits."
+      : `Diesel sample failed one or more tests${failedCriticals.length ? ` (${failedCriticals.join(", ")})` : ""}.`;
+    const note = sample.note ? ` ${sample.note}` : "";
+    const meta = ` | Test by: ${sample.analyst || "—"} | Generated: ${new Date().toISOString().replace("T", " ").slice(0, 16)}`;
+    doc.text(doc.splitTextToSize(verdictNote + note + meta, COL_W), PAGE.M, y);
+    y += 36;
+
+    // Per-page footer (matches aviation report style).
+    const total = doc.internal.getNumberOfPages();
+    for (let p = 1; p <= total; p++) {
+      doc.setPage(p);
+      footer(doc, sample.id);
+    }
+    return doc;
+  }
+
+  // ---- Public entry points ------------------------------------------
+
+  function reportKindFor(sample) {
+    const t = window.SAMPLE_TYPES.find(x => x.id === sample.sampleType);
+    return (t && t.report) || "aviation";
+  }
+
   window.exportSamplePDF = function (sample) {
     if (!sample) return;
     const asset = window.ASSETS.find(a => a.id === sample.assetId);
     const site  = window.SITES.find(s => s.id === asset?.site);
+    const kind = reportKindFor(sample);
+    if (kind === "diesel") {
+      const results = window.resolveDieselResults(sample.results || []);
+      const doc = buildDieselReport(sample, asset, site, results);
+      doc.save(`${sample.id}.pdf`);
+      return;
+    }
     const results = sample.results
       ? window.resolveResults(sample.results, asset?.class)
       : window.makeTestResults(sample);
