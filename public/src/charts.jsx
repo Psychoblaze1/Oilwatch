@@ -66,39 +66,100 @@ function HealthRadar({ dimensions, size = 280, stroke = 1.4 }) {
   );
 }
 
+// Site Health Bars — one row per operator, stacked horizontal bar of
+// engines by condition (Normal / Caution / Critical / Severe), plus
+// the 2 worst engines as quick-jump chips. Far easier to scan than the
+// previous cell-grid heatmap.
 function FleetHeatmap({ sites, assets, onPick }) {
-  const cls = window.ASSET_CLASSES;
-  // build matrix: rows=site, cols=class, cell = list of assets
-  const matrix = sites.map(s => cls.map(c => assets.filter(a => a.site === s.id && a.class === c.id)));
   return (
-    <div className="heatmap">
-      <div className="heatmap-head">
-        <div></div>
-        {cls.map(c => (<div key={c.id} className="heatmap-col-label">{c.label}</div>))}
+    <div className="hb-wrap">
+      <div className="hb-head mono">
+        <span>OPERATOR</span>
+        <span style={{ textAlign: "right" }}>ENGINES</span>
+        <span>CONDITION MIX</span>
+        <span>WORST</span>
       </div>
-      {sites.map((s, ri) => (
-        <div key={s.id} className="heatmap-row">
-          <div className="heatmap-row-label">
-            <div className="hm-site">{s.name}</div>
-            <div className="hm-region mono">{s.code} · {s.region}</div>
+      {sites.map(s => {
+        const list = assets.filter(a => a.site === s.id);
+        const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+        for (const a of list) counts[a.code]++;
+        const total = list.length;
+        const worst = list.slice().sort((a, b) => a.health - b.health).slice(0, 2);
+        if (total === 0) return (
+          <div key={s.id} className="hb-row">
+            <div className="hb-site">
+              <div className="hb-site-name">{s.name}</div>
+              <div className="hb-site-region mono">{s.code} · {s.region}</div>
+            </div>
+            <div className="hb-total mono">0</div>
+            <div className="hb-bar hb-bar-empty">no engines in this scope</div>
+            <div></div>
           </div>
-          {cls.map((c, ci) => {
-            const list = matrix[ri][ci];
-            return (
-              <div key={c.id} className="heatmap-cell">
-                <div className="hm-grid" style={{ "--n": Math.max(1, Math.ceil(Math.sqrt(list.length || 1))) }}>
-                  {list.length === 0 && <div className="hm-empty"></div>}
-                  {list.map(a => (
-                    <button key={a.id} className={`hm-dot c-${a.code}`} title={`${a.tag} · ${a.name} · Score ${a.health}`} onClick={() => onPick && onPick(a)}>
-                      <span className="hm-dot-score">{a.health}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ))}
+        );
+        return (
+          <div key={s.id} className="hb-row">
+            <div className="hb-site">
+              <div className="hb-site-name">{s.name}</div>
+              <div className="hb-site-region mono">{s.code} · {s.region}</div>
+            </div>
+            <div className="hb-total mono">{total}</div>
+            <div className="hb-bar" title={`Normal ${counts[1]} · Caution ${counts[2]} · Critical ${counts[3]} · Severe ${counts[4]}`}>
+              {[1,2,3,4].map(c => counts[c] > 0 && (
+                <span key={c} className={`hb-seg hb-c-${c}`} style={{ flex: counts[c] }}>
+                  {counts[c] / total > 0.10 ? `${counts[c]} ${window.COND[c].short}` : ""}
+                </span>
+              ))}
+            </div>
+            <div className="hb-worst">
+              {worst.map(a => (
+                <button key={a.id} className={`hb-chip hb-c-${a.code}`} onClick={() => onPick && onPick(a)}
+                        title={`${a.name} · ${a.tag} · score ${a.health}`}>
+                  <span className="mono" style={{ fontWeight: 600 }}>{a.health}</span>
+                  <span className="hb-chip-name">{a.name.split(" · ")[0]}</span>
+                </button>
+              ))}
+              {worst.length === 0 && <span className="hb-empty-chip mono">all clear</span>}
+            </div>
+          </div>
+        );
+      })}
+
+      <style>{`
+        .hb-wrap { padding: 4px 0 8px; }
+        .hb-head, .hb-row {
+          display: grid; grid-template-columns: 200px 64px 1fr 240px;
+          gap: 16px; align-items: center; padding: 10px 18px;
+        }
+        .hb-head { font-size: 10px; letter-spacing: 0.12em; color: var(--ink-3); text-transform: uppercase; padding-bottom: 6px; padding-top: 6px; }
+        .hb-row { border-top: 1px solid var(--line); }
+        .hb-row:hover { background: var(--bg-sunken); }
+        .hb-site-name { font-size: 13px; color: var(--ink); }
+        .hb-site-region { font-size: 10px; color: var(--ink-3); letter-spacing: 0.06em; margin-top: 2px; }
+        .hb-total { font-size: 14px; font-weight: 600; text-align: right; color: var(--ink); }
+        .hb-bar { display: flex; height: 22px; border-radius: 5px; overflow: hidden; background: var(--bg-sunken); border: 1px solid var(--line); }
+        .hb-bar-empty { display: grid; place-items: center; font-size: 11px; color: var(--ink-3); font-family: var(--mono); letter-spacing: 0.04em; }
+        .hb-seg { display: grid; place-items: center; font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em; font-family: var(--mono); overflow: hidden; white-space: nowrap; }
+        .hb-c-1 { background: var(--ok);   color: #fff; }
+        .hb-c-2 { background: var(--warn); color: #fff; }
+        .hb-c-3 { background: var(--crit); color: #fff; }
+        .hb-c-4 { background: var(--sev);  color: #fff; }
+        .hb-worst { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+        .hb-chip {
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 4px 8px 4px 6px; border-radius: 6px;
+          font-size: 11.5px; max-width: 160px;
+        }
+        .hb-chip-name { color: #fff; opacity: 0.95; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .hb-chip.hb-c-1 .hb-chip-name { color: var(--ok); }
+        .hb-chip.hb-c-1 { background: var(--ok-bg);   color: var(--ok); }
+        .hb-chip.hb-c-2 { background: var(--warn-bg); color: var(--warn); }
+        .hb-chip.hb-c-3 { background: var(--crit-bg); color: var(--crit); }
+        .hb-chip.hb-c-4 { background: var(--sev-bg);  color: var(--ink); }
+        .hb-chip.hb-c-2 .hb-chip-name { color: var(--warn); }
+        .hb-chip.hb-c-3 .hb-chip-name { color: var(--crit); }
+        .hb-chip.hb-c-4 .hb-chip-name { color: var(--ink); }
+        .hb-empty-chip { font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.06em; }
+      `}</style>
     </div>
   );
 }
@@ -120,13 +181,21 @@ function Sparkline({ data, w = 80, h = 24, accent = "var(--accent)" }) {
 }
 
 function TrendChart({ trend, height = 260, label = "Iron (Fe)", color = "var(--accent)" }) {
-  if (!trend) return null;
+  if (!trend || !trend.points || trend.points.length === 0) {
+    return (
+      <div style={{ height, display: "grid", placeItems: "center", color: "var(--ink-3)", fontSize: 12, fontFamily: "var(--mono)", letterSpacing: 0.06 }}>
+        NOT ENOUGH SAMPLES TO PLOT TREND
+      </div>
+    );
+  }
   const W = 760, H = height;
   const padL = 44, padR = 16, padT = 16, padB = 36;
   const pts = trend.points;
-  const max = Math.max(trend.alarm * 1.1, ...pts.map(p => p.value));
+  const vals = pts.map(p => p.value);
+  const alarmTop = typeof trend.alarm === "number" ? trend.alarm * 1.1 : Math.max(...vals) * 1.2;
+  const max = Math.max(alarmTop, ...vals, typeof trend.warn === "number" ? trend.warn : 0) || 1;
   const min = 0;
-  const xAt = (i) => padL + (i / (pts.length - 1)) * (W - padL - padR);
+  const xAt = (i) => padL + (pts.length > 1 ? (i / (pts.length - 1)) : 0.5) * (W - padL - padR);
   const yAt = (v) => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
 
   const linePath = pts.map((p, i) => (i === 0 ? "M" : "L") + xAt(i).toFixed(1) + " " + yAt(p.value).toFixed(1)).join(" ");
@@ -141,8 +210,8 @@ function TrendChart({ trend, height = 260, label = "Iron (Fe)", color = "var(--a
         </linearGradient>
       </defs>
       {/* alarm band */}
-      <rect x={padL} y={yAt(trend.alarm)} width={W - padL - padR} height={H - padB - yAt(trend.alarm)} fill="var(--crit-bg)" />
-      <rect x={padL} y={yAt(trend.warn)} width={W - padL - padR} height={yAt(trend.alarm) - yAt(trend.warn)} fill="var(--warn-bg)" />
+      {typeof trend.alarm === "number" && <rect x={padL} y={yAt(trend.alarm)} width={W - padL - padR} height={H - padB - yAt(trend.alarm)} fill="var(--crit-bg)" />}
+      {typeof trend.warn === "number" && typeof trend.alarm === "number" && <rect x={padL} y={yAt(trend.warn)} width={W - padL - padR} height={yAt(trend.alarm) - yAt(trend.warn)} fill="var(--warn-bg)" />}
       {/* gridlines */}
       {[0, 0.25, 0.5, 0.75, 1].map(t => {
         const y = padT + t * (H - padT - padB);
@@ -152,11 +221,15 @@ function TrendChart({ trend, height = 260, label = "Iron (Fe)", color = "var(--a
           <text x={padL - 6} y={y + 3} textAnchor="end" style={{ fontSize: 10, fill: "var(--ink-3)", fontFamily: "var(--mono)" }}>{Math.round(v)}</text>
         </g>);
       })}
-      {/* limit labels */}
-      <line x1={padL} y1={yAt(trend.warn)} x2={W - padR} y2={yAt(trend.warn)} stroke="var(--warn)" strokeWidth="1" strokeDasharray="4 3" />
-      <line x1={padL} y1={yAt(trend.alarm)} x2={W - padR} y2={yAt(trend.alarm)} stroke="var(--crit)" strokeWidth="1" strokeDasharray="4 3" />
-      <text x={W - padR - 4} y={yAt(trend.warn) - 4}  textAnchor="end" style={{ fontSize: 10, fill: "var(--warn)", fontFamily: "var(--mono)" }}>WARN {trend.warn}</text>
-      <text x={W - padR - 4} y={yAt(trend.alarm) - 4} textAnchor="end" style={{ fontSize: 10, fill: "var(--crit)", fontFamily: "var(--mono)" }}>ALARM {trend.alarm}</text>
+      {/* limit lines */}
+      {typeof trend.warn === "number" && <>
+        <line x1={padL} y1={yAt(trend.warn)} x2={W - padR} y2={yAt(trend.warn)} stroke="var(--warn)" strokeWidth="1" strokeDasharray="4 3" />
+        <text x={W - padR - 4} y={yAt(trend.warn) - 4}  textAnchor="end" style={{ fontSize: 10, fill: "var(--warn)", fontFamily: "var(--mono)" }}>WARN {trend.warn}</text>
+      </>}
+      {typeof trend.alarm === "number" && <>
+        <line x1={padL} y1={yAt(trend.alarm)} x2={W - padR} y2={yAt(trend.alarm)} stroke="var(--crit)" strokeWidth="1" strokeDasharray="4 3" />
+        <text x={W - padR - 4} y={yAt(trend.alarm) - 4} textAnchor="end" style={{ fontSize: 10, fill: "var(--crit)", fontFamily: "var(--mono)" }}>ALARM {trend.alarm}</text>
+      </>}
       {/* line + area */}
       <path d={areaPath} fill="url(#trendArea)" />
       <path d={linePath} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />

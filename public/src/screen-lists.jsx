@@ -3,7 +3,7 @@
 // (Compact secondary screens accessed from nav)
 // ============================================================
 
-function ScreenSamples({ siteFilter, focus }) {
+function ScreenSamples({ siteFilter, focus, setRoute }) {
   const [status, setStatus] = React.useState("ALL");
   const [q, setQ] = React.useState("");
   const assets = siteFilter === "all" ? window.ASSETS : window.ASSETS.filter(a => a.site === siteFilter);
@@ -34,7 +34,7 @@ function ScreenSamples({ siteFilter, focus }) {
             })),
             `oilwatch-samples-${new Date().toISOString().slice(0,10)}.csv`
           )}><Icon name="download" size={14}/> Export CSV</button>
-          <button className="btn btn-primary"><Icon name="plus" size={14}/> Log sample</button>
+          <button className="btn btn-primary" onClick={() => setRoute && setRoute("log-sample")}><Icon name="plus" size={14}/> Log sample</button>
         </div>
       </div>
 
@@ -157,17 +157,19 @@ function ScreenAlarms({ siteFilter, focus }) {
   const [, force] = React.useReducer(x => x + 1, 0);
   const alarms = window.ALARMS.filter(a => assets.find(x => x.id === a.assetId));
 
-  const ack = (id) => {
+  const ack = async (id) => {
     const i = window.ALARMS.findIndex(a => a.id === id);
     if (i >= 0) window.ALARMS[i] = { ...window.ALARMS[i], acknowledged: true };
     force();
+    try { await window.api.ackAlarm(id, true); } catch (e) { console.error("ack failed", e); }
   };
-  const ackAll = () => {
+  const ackAll = async () => {
     for (const al of alarms) {
       const i = window.ALARMS.findIndex(a => a.id === al.id);
       if (i >= 0) window.ALARMS[i] = { ...window.ALARMS[i], acknowledged: true };
     }
     force();
+    try { await window.api.ackAllAlarms(); } catch (e) { console.error("ackAll failed", e); }
   };
 
   return (

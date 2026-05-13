@@ -20,6 +20,7 @@ function Sidebar({ route, setRoute, role, setRole, openAI }) {
   const items = [
     { id: "dashboard", icon: "dashboard", label: "Dashboard" },
     { id: "samples",   icon: "samples",   label: "Samples" },
+    { id: "log-sample",icon: "plus",      label: "Log Sample" },
     { id: "lifecycle", icon: "lifecycle", label: "Lifecycle" },
     { id: "assets",    icon: "assets",    label: "Assets" },
     { id: "alarms",    icon: "alarm",     label: "Alarms",   count: window.ALARMS.filter(a => !a.acknowledged).length },
@@ -104,6 +105,7 @@ function Topbar({ site, setSite, route, openAI, onSearch, dark, onToggleTheme })
   const titles = {
     dashboard: "Fleet Overview",
     samples:   "Samples",
+    "log-sample": "Log Sample",
     lifecycle: "Sample Lifecycle",
     assets:    "Assets",
     alarms:    "Alarms",

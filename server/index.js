@@ -1,28 +1,110 @@
 // Oilwatch server
-// - Serves the static prototype out of public/ (drop-in for new design exports)
-// - Proxies POST /api/analyze to the Anthropic Messages API and streams SSE back
+//  - SQLite persistence (server/db.js); seed on first run
+//  - Static frontend served from public/
+//  - REST API for fleet data + mutations
+//  - SSE proxy to Anthropic Messages API for the in-app AI panel
 
 require("dotenv").config();
 const path = require("path");
 const express = require("express");
+const dbApi = require("./db");
+const { seed } = require("./seed");
 
-const PORT = process.env.PORT || 3000;
+const PORT  = process.env.PORT || 3000;
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 const API_KEY = process.env.ANTHROPIC_API_KEY;
+
+if (!dbApi.isSeeded()) {
+  console.log("Empty DB — seeding piston aviation fleet…");
+  seed();
+  console.log("Seeded.");
+}
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
 app.use(express.static(PUBLIC_DIR));
-
-// Root → the prototype entry. Keeps the URL clean on AWS.
 app.get("/", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "Oilwatch.html")));
 
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, model: MODEL, hasKey: !!API_KEY });
+app.get("/api/health", (_req, res) => res.json({ ok: true, model: MODEL, hasKey: !!API_KEY }));
+
+// ---- Bootstrap: returns the full fleet snapshot in one call ----------
+app.get("/api/bootstrap", (_req, res) => {
+  try { res.json(dbApi.getBootstrap()); }
+  catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
+// ---- Samples ---------------------------------------------------------
+app.post("/api/samples", (req, res) => {
+  const s = req.body || {};
+  if (!s.assetId) return res.status(400).json({ error: "assetId required" });
+  const id = s.id || dbApi.nextSampleId();
+  const payload = {
+    id,
+    barcode: s.barcode || ("AOA" + (240000 + Math.floor(Math.random() * 9999))),
+    assetId: s.assetId,
+    component: s.component || "Sump Drain",
+    oil: s.oil || "—",
+    receivedAt: s.receivedAt || new Date().toISOString(),
+    status: s.status || "DRAFT",
+    priority: s.priority || "STD",
+    score: s.score ?? 80,
+    code: s.code ?? 1,
+    analyst: s.analyst || "—",
+    flags: s.flags || [],
+    results: s.results || null,
+  };
+  try { dbApi.createSample(payload); res.json({ ok: true, id }); }
+  catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+app.put("/api/samples/:id", (req, res) => {
+  const { status } = req.body || {};
+  if (!status) return res.status(400).json({ error: "status required" });
+  dbApi.setSampleStatus(req.params.id, status);
+  res.json({ ok: true });
+});
+
+// ---- Alarms ----------------------------------------------------------
+app.put("/api/alarms/:id", (req, res) => {
+  const { acknowledged } = req.body || {};
+  dbApi.setAlarmAck(req.params.id, !!acknowledged);
+  res.json({ ok: true });
+});
+app.post("/api/alarms/ack-all", (_req, res) => {
+  dbApi.ackAllAlarms();
+  res.json({ ok: true });
+});
+
+// ---- Limits ----------------------------------------------------------
+app.put("/api/limits/:scope/:param", (req, res) => {
+  dbApi.setLimit(req.params.scope, req.params.param, req.body || {});
+  res.json({ ok: true });
+});
+app.delete("/api/limits/:scope", (req, res) => {
+  dbApi.resetLimits(req.params.scope);
+  res.json({ ok: true });
+});
+
+// ---- Rules -----------------------------------------------------------
+app.post("/api/rules", (req, res) => {
+  const r = req.body || {};
+  if (!r.id) r.id = dbApi.nextRuleId();
+  if (!r.createdAt) r.createdAt = new Date().toISOString();
+  dbApi.saveRule(r);
+  res.json({ ok: true, id: r.id });
+});
+app.put("/api/rules/:id", (req, res) => {
+  dbApi.saveRule({ ...req.body, id: req.params.id });
+  res.json({ ok: true });
+});
+app.delete("/api/rules/:id", (req, res) => {
+  dbApi.deleteRule(req.params.id);
+  res.json({ ok: true });
+});
+app.get("/api/rules/next-id", (_req, res) => res.json({ id: dbApi.nextRuleId() }));
+
+// ---- AI proxy (Claude Sonnet, SSE pass-through) ----------------------
 app.post("/api/analyze", async (req, res) => {
   if (!API_KEY) {
     res.status(500).type("text/plain").send("ANTHROPIC_API_KEY is not set on the server.");
@@ -33,49 +115,35 @@ app.post("/api/analyze", async (req, res) => {
     res.status(400).type("text/plain").send("messages array required");
     return;
   }
-
   const system = [
-    "You are the Oilwatch AI assistant for a Lab88 VU oil-analysis LIMS.",
-    "You help reliability engineers, analysts and managers reason about wear metals, viscosity, water content, particle counts (ISO 4406), and failure-mode patterns across an industrial fleet.",
-    "Be concise and direct. Use plain English unless the user asks for technical depth.",
-    "When you reference a sample, asset, or alarm, cite its ID inline (e.g. S-50250, A-1015).",
+    "You are the Oilwatch AI assistant for a piston-aircraft oil-analysis lab (Lab88 VU).",
+    "You help A&P mechanics, owner-operators, flight schools, and lab analysts reason about wear metals (Fe, Cr, Al, Cu, Ni), silicon, lead (always high from 100LL avgas — usually NOT alarming), viscosity at 100°C, water, and fuel dilution.",
+    "Engine families: Lycoming 4/6-cyl, Continental 4/6-cyl, Rotax, radial. Watch especially for the Lycoming cam/lifter corrosion-driven wear signature (Fe + Cr running together on low-utilization engines).",
+    "Be concise and direct. Use plain English unless the user asks for depth.",
+    "When you reference a sample, engine, or alarm, cite its ID inline (e.g. S-50250, A-1015, AL-12345).",
     "If the user's question is ambiguous, ask one short follow-up rather than guessing.",
     `Session context: ${JSON.stringify(context)}`,
   ].join("\n");
-
   let upstream;
   try {
     upstream = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "x-api-key": API_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 1024,
-        system,
-        messages,
-        stream: true,
-      }),
+      headers: { "x-api-key": API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model: MODEL, max_tokens: 1024, system, messages, stream: true }),
     });
   } catch (e) {
     res.status(502).type("text/plain").send("Upstream fetch failed: " + e.message);
     return;
   }
-
   if (!upstream.ok || !upstream.body) {
     const body = await upstream.text().catch(() => "");
     res.status(upstream.status).type("text/plain").send(body || "Anthropic API error");
     return;
   }
-
   res.setHeader("content-type", "text/event-stream");
   res.setHeader("cache-control", "no-cache, no-transform");
   res.setHeader("x-accel-buffering", "no");
   res.flushHeaders?.();
-
   const reader = upstream.body.getReader();
   try {
     while (true) {
@@ -83,11 +151,7 @@ app.post("/api/analyze", async (req, res) => {
       if (done) break;
       res.write(Buffer.from(value));
     }
-  } catch (e) {
-    // Client disconnected or upstream errored mid-stream; close politely.
-  } finally {
-    res.end();
-  }
+  } catch (_) {} finally { res.end(); }
 });
 
 app.listen(PORT, () => {

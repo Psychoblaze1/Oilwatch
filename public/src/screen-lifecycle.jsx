@@ -1,7 +1,7 @@
 // ============================================================
 // Sample Lifecycle — kanban DRAFT → QC → APPROVED → PUBLISHED
 // ============================================================
-function ScreenLifecycle({ siteFilter, focus, role }) {
+function ScreenLifecycle({ siteFilter, focus, role, refresh }) {
   const columns = [
     { id: "DRAFT",     label: "Draft",     hint: "Collection in progress" },
     { id: "QC",        label: "In QC",     hint: "Awaiting analyst review" },
@@ -19,14 +19,17 @@ function ScreenLifecycle({ siteFilter, focus, role }) {
   const byStatus = Object.fromEntries(columns.map(c => [c.id, filtered.filter(s => statusOf(s) === c.id)]));
   const rejected = filtered.filter(s => statusOf(s) === "REJECTED");
 
-  const setStatus = (id, next) => {
+  const setStatus = async (id, next) => {
     setOverrides(o => ({ ...o, [id]: next }));
     const idx = window.SAMPLES.findIndex(s => s.id === id);
     if (idx >= 0) window.SAMPLES[idx] = { ...window.SAMPLES[idx], status: next };
+    try { await window.api.setSampleStatus(id, next); }
+    catch (e) { console.error("setSampleStatus failed", e); }
+    refresh && refresh();
   };
-  const bulkApprove = () => {
+  const bulkApprove = async () => {
     const qcIds = byStatus.QC.map(s => s.id);
-    qcIds.forEach(id => setStatus(id, "APPROVED"));
+    for (const id of qcIds) await setStatus(id, "APPROVED");
   };
   const next = { DRAFT: "QC", QC: "APPROVED", APPROVED: "PUBLISHED" };
   const canAdvance = (s) => {

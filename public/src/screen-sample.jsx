@@ -1,25 +1,32 @@
 // ============================================================
 // Sample detail screen — N-dim radar, dimension cards, results, AI rec
 // ============================================================
-function ScreenSample({ sampleId, back, openAI, role }) {
+function ScreenSample({ sampleId, back, openAI, role, refresh }) {
   const baseSample = window.SAMPLES.find(s => s.id === sampleId) || window.SAMPLES[0];
+  if (!baseSample) {
+    return <div className="page"><div className="page-sub">Sample not found.</div></div>;
+  }
   const [status, setStatus] = React.useState(baseSample.status);
   React.useEffect(() => { setStatus(baseSample.status); }, [baseSample.id]);
   const sample = { ...baseSample, status };
 
-  const asset = window.ASSETS.find(a => a.id === sample.assetId);
-  const results = window.makeTestResults(sample);
-  const dims = asset.dimensions;
-  const cond = window.COND[sample.code];
+  const asset = window.ASSETS.find(a => a.id === sample.assetId) || {};
+  const results = sample.results
+    ? window.resolveResults(sample.results, asset.class)
+    : window.makeTestResults(sample);
+  const dims = asset.dimensions || [];
+  const cond = window.COND[sample.code] || window.COND[1];
 
   const canApprove = (role === "ANALYST" || role === "MANAGER") && status === "QC";
   const canPublish = (role === "ANALYST" || role === "MANAGER") && status === "APPROVED";
 
-  const updateStatus = (next) => {
+  const updateStatus = async (next) => {
     setStatus(next);
-    // Mirror into the shared dataset so lifecycle/lists reflect it.
     const idx = window.SAMPLES.findIndex(s => s.id === baseSample.id);
     if (idx >= 0) window.SAMPLES[idx] = { ...window.SAMPLES[idx], status: next };
+    try { await window.api.setSampleStatus(baseSample.id, next); }
+    catch (e) { console.error("setSampleStatus failed", e); }
+    refresh && refresh();
   };
 
   return (
@@ -119,32 +126,37 @@ function ScreenSample({ sampleId, back, openAI, role }) {
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head">
           <span className="card-title">Test Results</span>
-          <span className="card-sub mono">{results.length} PARAMETERS · BASELINE: {asset.oil.name.toUpperCase()}</span>
+          <span className="card-sub mono">{results.length} PARAMETERS · BASELINE: {(asset.oil?.name || "—").toUpperCase()}</span>
         </div>
         <div className="card-body no-pad">
-          <table className="table">
-            <thead><tr>
-              <th>Parameter</th><th>Value</th><th>Unit</th><th>Warn</th><th>Alarm</th><th>Status</th><th>Method</th><th></th>
-            </tr></thead>
-            <tbody>
-              {results.map(r => (
-                <tr key={r.code}>
-                  <td><span className="mono t-id" style={{ marginRight: 8 }}>{r.code}</span>{r.name}</td>
-                  <td className="mono" style={{ fontWeight: 600 }}>{typeof r.value === "number" ? (Number.isInteger(r.value) ? r.value : r.value.toFixed(1)) : r.value}</td>
-                  <td className="mono t-muted">{r.unit}</td>
-                  <td className="mono t-muted">{r.warn}</td>
-                  <td className="mono t-muted">{r.alarm}</td>
-                  <td>
-                    {r.status === "alarm" && <Chip code={3}>ALARM</Chip>}
-                    {r.status === "warn"  && <Chip code={2}>WARN</Chip>}
-                    {r.status === "ok"    && <Chip code={1}>OK</Chip>}
-                  </td>
-                  <td className="mono t-muted">{r.method}</td>
-                  <td><Sparkline data={[r.value*0.6, r.value*0.65, r.value*0.7, r.value*0.78, r.value*0.85, r.value*0.92, typeof r.value === "number" ? r.value : 18].map(v => typeof v === "number" ? v : 18)} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {results.length === 0 ? (
+            <div style={{ padding: 28, textAlign: "center", color: "var(--ink-3)", fontSize: 13 }}>
+              No results yet — sample is in DRAFT. Use <b>Log sample</b> to attach instrument readings.
+            </div>
+          ) : (
+            <table className="table">
+              <thead><tr>
+                <th>Parameter</th><th>Value</th><th>Unit</th><th>Warn</th><th>Alarm</th><th>Status</th><th>Method</th>
+              </tr></thead>
+              <tbody>
+                {results.map(r => (
+                  <tr key={r.code}>
+                    <td><span className="mono t-id" style={{ marginRight: 8 }}>{r.code}</span>{r.name}</td>
+                    <td className="mono" style={{ fontWeight: 600 }}>{typeof r.value === "number" ? (Number.isInteger(r.value) ? r.value : r.value.toFixed(1)) : r.value}</td>
+                    <td className="mono t-muted">{r.unit}</td>
+                    <td className="mono t-muted">{r.warn}</td>
+                    <td className="mono t-muted">{r.alarm}</td>
+                    <td>
+                      {r.status === "alarm" && <Chip code={3}>ALARM</Chip>}
+                      {r.status === "warn"  && <Chip code={2}>WARN</Chip>}
+                      {r.status === "ok"    && <Chip code={1}>OK</Chip>}
+                    </td>
+                    <td className="mono t-muted">{r.method}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 

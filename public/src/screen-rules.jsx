@@ -26,36 +26,33 @@ const ACTIONS = [
 function ScreenRules({ role }) {
   const canEdit = role === "ANALYST" || role === "MANAGER" || role === "ADMIN";
   const [rules, setRules] = React.useState(() => window.getRules());
-  const [editing, setEditing] = React.useState(null); // rule object or null
+  const [editing, setEditing] = React.useState(null);
 
   const refresh = () => setRules(window.getRules());
 
-  const onToggle = (rule) => {
+  const onToggle = async (rule) => {
     if (!canEdit) return;
-    window.saveRule({ ...rule, enabled: !rule.enabled });
+    await window.saveRule({ ...rule, enabled: !rule.enabled });
     refresh();
   };
-  const onDelete = (rule) => {
+  const onDelete = async (rule) => {
     if (!canEdit) return;
     if (!confirm(`Delete rule "${rule.name}"?`)) return;
-    window.deleteRule(rule.id);
+    await window.deleteRule(rule.id);
     refresh();
   };
-  const onNew = () => {
+  const onNew = async () => {
+    const id = await window.nextRuleId();
     setEditing({
-      id: window.nextRuleId(),
-      name: "",
-      enabled: true,
-      severity: "WARN",
+      id, name: "", enabled: true, severity: "WARN",
       scope: { classes: "all" },
       conditions: [{ param: "Fe", op: ">", value: 30 }],
       action: "alarm",
-      createdAt: new Date().toISOString(),
-      lastTriggered: null,
+      createdAt: new Date().toISOString(), lastTriggered: null,
     });
   };
-  const onSave = (rule) => {
-    window.saveRule(rule);
+  const onSave = async (rule) => {
+    await window.saveRule(rule);
     setEditing(null);
     refresh();
   };

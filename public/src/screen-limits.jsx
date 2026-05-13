@@ -16,7 +16,7 @@ function ScreenLimits({ role }) {
   const [, force] = React.useReducer(x => x + 1, 0);
   const limits = window.getLimits(scope);
 
-  const onChange = (paramCode, field, raw) => {
+  const onChange = async (paramCode, field, raw) => {
     if (!canEdit) return;
     const def = window.PARAM_DEFS.find(p => p.code === paramCode);
     let parsed = raw;
@@ -24,14 +24,14 @@ function ScreenLimits({ role }) {
       const n = parseFloat(raw);
       parsed = isNaN(n) ? def[field] : n;
     }
-    window.setLimit(scope, paramCode, { [field]: parsed });
+    await window.setLimit(scope, paramCode, { [field]: parsed });
     force();
   };
 
-  const onReset = () => {
+  const onReset = async () => {
     if (!canEdit) return;
     if (!confirm(`Reset ${scope === "all" ? "fleet" : scope} limits to defaults?`)) return;
-    window.resetLimits(scope);
+    await window.resetLimits(scope);
     force();
   };
 
