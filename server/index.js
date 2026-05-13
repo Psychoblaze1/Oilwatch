@@ -9,6 +9,7 @@ const path = require("path");
 const express = require("express");
 const dbApi = require("./db");
 const { seed } = require("./seed");
+const parsers = require("./parsers");
 
 const PORT  = process.env.PORT || 3000;
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
@@ -37,6 +38,56 @@ app.get("/api/bootstrap", (_req, res) => {
   catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
+// ---- Sites / Locations / Asset Types / Engines management -----------
+app.post("/api/sites", (req, res) => {
+  const { name, code, region } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name required" });
+  try { res.json(dbApi.createSite({ name, code, region })); }
+  catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+app.post("/api/sites/:siteId/locations", (req, res) => {
+  const { name } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name required" });
+  try { res.json(dbApi.createLocation(req.params.siteId, name)); }
+  catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/locations/:id", (req, res) => {
+  try { dbApi.deleteLocation(req.params.id); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/sites/:siteId/asset-types", (req, res) => {
+  const { name, locationId } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name required" });
+  try { res.json(dbApi.createAssetType(req.params.siteId, locationId, name)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/asset-types/:id", (req, res) => {
+  try { dbApi.deleteAssetType(req.params.id); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/engines", (req, res) => {
+  const e = req.body || {};
+  if (!e.siteId || !e.name) return res.status(400).json({ error: "siteId and name required" });
+  try { res.json(dbApi.createEngine(e)); }
+  catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
+// ---- Instrument-file parsers ----------------------------------------
+// Each accepts a CSV string in `csv` and returns { readings: [{code, value}] }.
+function parseHandler(parserFn) {
+  return (req, res) => {
+    const { csv } = req.body || {};
+    if (typeof csv !== "string" || !csv.trim()) {
+      return res.status(400).json({ error: "csv text required" });
+    }
+    try { res.json(parserFn(csv)); }
+    catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+  };
+}
+app.post("/api/parse/ir-vision",   parseHandler(parsers.parseIRVisionCSV));
+app.post("/api/parse/flash-point", parseHandler(parsers.parseFlashPointCSV));
+app.post("/api/parse/additives",   parseHandler(parsers.parseAdditivesCSV));
+
 // ---- Samples ---------------------------------------------------------
 app.post("/api/samples", (req, res) => {
   const s = req.body || {};
@@ -59,6 +110,12 @@ app.post("/api/samples", (req, res) => {
     sampleType: s.sampleType || "piston-oil",
     filterPatch: s.filterPatch || null,
     note: s.note || null,
+    irVisionData:   s.irVisionData   || null,
+    flashPointData: typeof s.flashPointData === "number" ? s.flashPointData : null,
+    additivesData:  s.additivesData  || null,
+    irVisionFile:   s.irVisionFile   || null,
+    flashPointFile: s.flashPointFile || null,
+    additivesFile:  s.additivesFile  || null,
   };
   try { dbApi.createSample(payload); res.json({ ok: true, id }); }
   catch (e) { console.error(e); res.status(500).json({ error: e.message }); }

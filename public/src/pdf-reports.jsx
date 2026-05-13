@@ -236,7 +236,8 @@
     const colW = (COL_W - 24) / 2;
     let yL = y, yR = y;
     yL = kv(doc, PAGE.M, yL, "Operator", site?.name || sample.siteName || "—", colW);
-    yL = kv(doc, PAGE.M, yL, "Location", site ? `${site.region}  ·  ${site.code}` : "—", colW);
+    yL = kv(doc, PAGE.M, yL, "Site / Location", sample.locationName ? `${sample.locationName}` : (site ? `${site.region}  ·  ${site.code}` : "—"), colW);
+    if (sample.assetTypeName) yL = kv(doc, PAGE.M, yL, "Asset Type", sample.assetTypeName, colW);
 
     yR = kv(doc, PAGE.M + colW + 24, yR, "Aircraft", asset?.name || sample.assetName || "—", colW);
     yR = kv(doc, PAGE.M + colW + 24, yR, "Engine",   asset?.tag || sample.assetTag || "—", colW);
@@ -620,8 +621,8 @@
     };
     const dieselType = (window.SAMPLE_TYPES.find(t => t.id === sample.sampleType)?.label) || "—";
     drawCell(0, 0, "Company name", site?.name || sample.siteName || "—");
-    drawCell(1, 0, "Site",         site?.region || "—");
-    drawCell(2, 0, "Component",    sample.component || "—");
+    drawCell(1, 0, "Site / Location", sample.locationName || site?.region || "—");
+    drawCell(2, 0, "Asset Type",   sample.assetTypeName || asset?.classLabel || "—");
     drawCell(3, 0, "Equipment",    (asset && asset.name) || "None");
     drawCell(0, 1, "Sample Date",  dateOnly(sample.receivedAt));
     drawCell(1, 1, "Diesel Type",  dieselType.replace(/^Diesel\s*[—-]\s*/, ""));

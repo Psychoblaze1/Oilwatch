@@ -1,76 +1,185 @@
 // ============================================================
-// Log Sample workflow
+// Log Sample — scaffolded after the Lab88 sample_upload flow.
 //
-// Pick a sample type → pick the aircraft engine → fill in each
-// required instrument's readings → submit. The instrument list
-// per sample type comes from window.SAMPLE_TYPES / window.INSTRUMENTS
-// in data.jsx, so adding new instruments (Spectro Q5800, new MiniLab,
-// etc.) is a one-place edit. Future "auto-upload" integrations would
-// pre-fill instrument fields by POSTing here from a watcher process.
+//   1. Site & Equipment   — cascading: Site → Location → Asset Type → Serial #
+//   2. Sample Type & Draw — pick panel (Diesel CF1 / Piston Oil), draw date, etc.
+//   3. Instrument Uploads — drop in IR Vision / Flash Point / Additives /
+//                           Filter Patch files. The server-side parsers
+//                           extract structured readings automatically.
+//   4. Manual Readings    — only the params that no upload provides.
+//   5. Comment            — free text. Surfaces in the PDF report.
+//
+// Submitting POSTs /api/samples with the merged readings plus the
+// raw file contents so a reviewer can re-process if needed.
 // ============================================================
 
 function ScreenLogSample({ refresh, setRoute, focus }) {
   const today = new Date().toISOString().slice(0, 10);
-  const [typeId, setTypeId]   = React.useState(window.SAMPLE_TYPES[0].id);
-  const [engineId, setEngine] = React.useState(window.ASSETS[0]?.id || "");
-  const [drawnAt, setDrawnAt] = React.useState(today);
-  const [oilHours, setOilHours] = React.useState("");      // hours since last oil change
+
+  // --- Hierarchy state ---
+  const [siteId,      setSiteId]      = React.useState(window.SITES[0]?.id || "");
+  const [locationId,  setLocationId]  = React.useState("");
+  const [assetTypeId, setAssetTypeId] = React.useState("");
+  const [engineId,    setEngineId]    = React.useState("");
+  const [newEngineMode, setNewEngineMode] = React.useState(false);
+  const [newEngineName, setNewEngineName] = React.useState("");
+  const [newEngineTag,  setNewEngineTag]  = React.useState("");
+
+  // Reset child selects when a parent changes.
+  React.useEffect(() => { setLocationId(""); setAssetTypeId(""); setEngineId(""); }, [siteId]);
+  React.useEffect(() => { setAssetTypeId(""); setEngineId(""); }, [locationId]);
+  React.useEffect(() => { setEngineId(""); }, [assetTypeId]);
+
+  // --- Sample type + draw context ---
+  const [typeId,    setTypeId]    = React.useState(window.SAMPLE_TYPES[0].id);
+  const [drawnAt,   setDrawnAt]   = React.useState(today);
+  const [priority,  setPriority]  = React.useState("STD");
+  const [analyst,   setAnalyst]   = React.useState("D. Vaughn");
   const [component, setComponent] = React.useState("");
-  const [priority, setPriority] = React.useState("STD");
-  const [analyst, setAnalyst]   = React.useState("D. Vaughn");
-  const [readings, setReadings] = React.useState({});       // { paramCode: { value, instrumentId } }
+  const [noteText,  setNoteText]  = React.useState("");
+
+  // --- Instrument file uploads + parsed readings ---
+  // `readings[code] = { value, source }` where source ∈ {"ir","flash","add","manual"}.
+  const [readings, setReadings] = React.useState({});
+  const [irFile,    setIrFile]    = React.useState(null);   // {name, text, count}
+  const [flashFile, setFlashFile] = React.useState(null);
+  const [addFile,   setAddFile]   = React.useState(null);
   const [filterPatch, setFilterPatch] = React.useState(null);
-  const [noteText, setNoteText]   = React.useState("");
+  const [parseErr,  setParseErr]  = React.useState(null);
+
   const [submitting, setSubmitting] = React.useState(false);
-  const [error, setError] = React.useState(null);
+  const [error,      setError]      = React.useState(null);
 
-  const sampleType = window.SAMPLE_TYPES.find(t => t.id === typeId);
-  const instruments = sampleType.instruments.map(id => window.INSTRUMENTS.find(i => i.id === id)).filter(Boolean);
-  const engine = window.ASSETS.find(a => a.id === engineId);
+  const sampleType = window.SAMPLE_TYPES.find(t => t.id === typeId) || window.SAMPLE_TYPES[0];
+  const site       = window.SITES.find(s => s.id === siteId);
+  const locations  = siteId ? window.getLocationsForSite(siteId) : [];
+  const assetTypes = siteId ? window.getAssetTypesForSite(siteId, locationId || null) : [];
+  const engines    = siteId ? window.getEnginesForAssetType(siteId, locationId || null, assetTypeId || null) : [];
+  const engine     = engines.find(e => e.id === engineId);
 
-  // Set component default to whatever the picked sample type wants.
-  React.useEffect(() => {
-    if (!component) setComponent(sampleType.defaultComponent);
-  }, [typeId]);
+  // Set the component default whenever the sample type changes.
+  React.useEffect(() => { setComponent(sampleType.defaultComponent || ""); }, [typeId]);
 
-  const setReading = (paramCode, instrumentId, value) => {
-    setReadings(r => ({ ...r, [paramCode]: { value, instrumentId } }));
+  // ---- File parsing ----
+  const handleParse = async (kind, file) => {
+    if (!file) return;
+    setParseErr(null);
+    const text = await file.text();
+    try {
+      let out;
+      if (kind === "ir")    out = await window.api.parseIrVision(text);
+      if (kind === "flash") out = await window.api.parseFlashPoint(text);
+      if (kind === "add")   out = await window.api.parseAdditives(text);
+      const readingsArr = (out && out.readings) || [];
+      const source = { ir: "ir", flash: "flash", add: "add" }[kind];
+      setReadings(prev => {
+        const next = { ...prev };
+        for (const r of readingsArr) next[r.code] = { value: r.value, source };
+        return next;
+      });
+      const meta = { name: file.name, text, count: readingsArr.length };
+      if (kind === "ir")    setIrFile(meta);
+      if (kind === "flash") setFlashFile(meta);
+      if (kind === "add")   setAddFile(meta);
+    } catch (e) {
+      setParseErr(`${file.name}: ${e.message}`);
+    }
+  };
+  const clearFile = (kind) => {
+    const sourceTag = { ir: "ir", flash: "flash", add: "add" }[kind];
+    setReadings(prev => {
+      const next = {};
+      for (const [c, r] of Object.entries(prev)) if (r.source !== sourceTag) next[c] = r;
+      return next;
+    });
+    if (kind === "ir")    setIrFile(null);
+    if (kind === "flash") setFlashFile(null);
+    if (kind === "add")   setAddFile(null);
   };
 
-  const score = React.useMemo(() => deriveScore(readings, engine?.class), [readings, engine]);
-  const code  = window.scoreToCode(score);
+  // ---- Param catalogue resolution ----
+  // Codes the sample type cares about, in order. Anything not in
+  // `readings` gets a manual-input row.
+  const paramCodes = React.useMemo(() => {
+    const codes = new Set();
+    for (const instId of sampleType.instruments) {
+      const inst = window.INSTRUMENTS.find(i => i.id === instId);
+      if (!inst) continue;
+      for (const c of inst.measures) codes.add(c);
+    }
+    return [...codes];
+  }, [typeId]);
+  const manualCodes = paramCodes.filter(c => !(c in readings));
 
+  const setManual = (code, value) => {
+    setReadings(prev => ({ ...prev, [code]: { value, source: "manual" } }));
+  };
+  const clearManual = (code) => {
+    setReadings(prev => {
+      const next = { ...prev }; delete next[code]; return next;
+    });
+  };
+
+  // ---- Submit ----
   const onSubmit = async () => {
+    if (!siteId)   { setError("Pick a site first.");                     return; }
+    if (!engine && !newEngineMode) { setError("Pick equipment or register new."); return; }
     setError(null); setSubmitting(true);
     try {
-      // Pack instrument readings into the wire shape the server expects.
-      // Numeric params get coerced to Number; text codes (ISO 4406) stay strings.
+      // Inline "register new equipment" path.
+      let useEngineId = engineId;
+      if (newEngineMode) {
+        if (!newEngineName.trim() || !assetTypeId || !locationId) {
+          throw new Error("Need location, asset type, and equipment name to register new.");
+        }
+        const created = await window.api.createEngine({
+          siteId, locationId, assetTypeId,
+          name: newEngineName.trim(), tag: newEngineTag.trim(),
+          oem: null, oilName: null,
+          health: 95, code: 1, runHours: 0, criticality: "C", rulDays: 120,
+        });
+        useEngineId = created.id;
+        await window.bootstrap();
+      }
+
       const results = Object.entries(readings)
         .filter(([, r]) => r.value !== "" && r.value != null)
-        .map(([c, r]) => {
-          const p = window.getParam(c);
+        .map(([code, r]) => {
+          const p = window.getParam(code);
           const isText = p && p.dir === "info" && p.code === "ISO4406";
           const value = isText ? String(r.value) : Number(r.value);
-          return { code: c, value, instrument: r.instrumentId };
+          return { code, value, source: r.source };
         });
       const anyResults = results.length > 0;
+
+      const irData    = irFile    ? Object.fromEntries(results.filter(r => r.source === "ir").map(r => [r.code, r.value])) : null;
+      const addData   = addFile   ? Object.fromEntries(results.filter(r => r.source === "add").map(r => [r.code, r.value])) : null;
+      const flashData = flashFile ? results.find(r => r.code === "FlashPt")?.value ?? null : null;
+
       const sample = {
-        assetId: engine.id,
+        assetId: useEngineId,
         component: component || sampleType.defaultComponent,
-        oil: engine.oil?.name || "—",
+        oil: (engine?.oil?.name) || newEngineTag || "—",
         receivedAt: new Date(drawnAt).toISOString(),
         status: anyResults ? "QC" : "DRAFT",
         priority,
-        score, code,
+        score: deriveScore(readings, engine?.class),
+        code:  window.scoreToCode(deriveScore(readings, engine?.class)),
         analyst,
         flags: derivedFlags(readings),
         results: anyResults ? results : null,
         sampleType: typeId,
         filterPatch: sampleType.acceptsFilterPatch ? filterPatch : null,
         note: noteText || null,
+        irVisionData: irData,
+        flashPointData: typeof flashData === "number" ? flashData : null,
+        additivesData: addData,
+        irVisionFile:   irFile?.text   ? `data:text/csv;base64,${btoa(unescape(encodeURIComponent(irFile.text)))}` : null,
+        flashPointFile: flashFile?.text? `data:text/csv;base64,${btoa(unescape(encodeURIComponent(flashFile.text)))}` : null,
+        additivesFile:  addFile?.text  ? `data:text/csv;base64,${btoa(unescape(encodeURIComponent(addFile.text)))}` : null,
       };
+
       const res = await window.api.createSample(sample);
-      // Refresh by re-running bootstrap so SAMPLES updates with the new row.
       await window.bootstrap();
       refresh && refresh();
       focus && focus(res.id, "sample");
@@ -79,190 +188,303 @@ function ScreenLogSample({ refresh, setRoute, focus }) {
     } finally { setSubmitting(false); }
   };
 
-  if (!engine) {
-    return <div className="page"><div className="page-sub">No engines in the fleet yet.</div></div>;
+  if (window.SITES.length === 0) {
+    return (
+      <div className="page">
+        <div className="page-header"><div><h1 className="page-title">Log Sample</h1></div></div>
+        <div className="card"><div className="card-body" style={{ textAlign: "center", padding: 32 }}>
+          No sites yet. Go to <button className="btn btn-sm" onClick={() => setRoute && setRoute("manage")}>Manage</button> and register a site + location + asset type first.
+        </div></div>
+      </div>
+    );
   }
+
+  const canSubmit = siteId && (engine || (newEngineMode && newEngineName.trim() && locationId && assetTypeId));
 
   return (
     <div className="page">
       <div className="page-header">
         <div>
           <h1 className="page-title">Log Sample</h1>
-          <div className="page-sub">Pick a sample type, the engine, and key in the instrument readings. Submit drops the sample into the QC queue.</div>
+          <div className="page-sub">Pick the equipment, upload instrument files (parsers auto-fill readings), then submit.</div>
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost" onClick={() => setRoute && setRoute("samples")}>Cancel</button>
-          <button className="btn btn-primary" disabled={submitting} onClick={onSubmit}>
+          <button className="btn btn-primary" disabled={!canSubmit || submitting} onClick={onSubmit}>
             <Icon name="check" size={14}/> {submitting ? "Submitting…" : "Submit"}
           </button>
         </div>
       </div>
 
-      <div className="grid-2" style={{ marginBottom: 16 }}>
-        <div className="card">
-          <div className="card-head"><span className="card-title">Sample Type</span></div>
-          <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {window.SAMPLE_TYPES.map(t => (
-              <button key={t.id} className={`type-card ${typeId === t.id ? "is-active" : ""}`} onClick={() => setTypeId(t.id)}>
-                <div className="type-name">{t.label}</div>
-                <div className="type-sub">{t.description}</div>
-                <div className="mono type-instr">
-                  {t.instruments.map(id => window.INSTRUMENTS.find(i => i.id === id)?.name).filter(Boolean).join(" · ")}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-head"><span className="card-title">Engine &amp; Draw</span></div>
-          <div className="card-body" style={{ display: "grid", gridTemplateColumns: "150px 1fr", gap: "10px 14px", fontSize: 12.5 }}>
-            <div className="muted">Engine</div>
-            <select className="ls-input" value={engineId} onChange={e => setEngine(e.target.value)}>
-              {window.ASSETS.slice().sort((a,b) => a.siteName.localeCompare(b.siteName) || a.name.localeCompare(b.name)).map(a => (
-                <option key={a.id} value={a.id}>{a.name} · {a.tag} · {a.siteName}</option>
-              ))}
+      {/* 1. Site & Equipment ----------------------------------- */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head"><span className="card-title">Site & Equipment</span></div>
+        <div className="card-body" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+          <div>
+            <div className="ls-label">Site</div>
+            <select className="ls-input" value={siteId} onChange={e => setSiteId(e.target.value)}>
+              <option value="">— Select —</option>
+              {window.SITES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-
-            <div className="muted">Component</div>
-            <input className="ls-input" value={component} placeholder={sampleType.defaultComponent}
-                   onChange={e => setComponent(e.target.value)} />
-
-            <div className="muted">Drawn</div>
-            <input className="ls-input" type="date" value={drawnAt} onChange={e => setDrawnAt(e.target.value)} />
-
-            <div className="muted">Hours since last oil change</div>
-            <input className="ls-input" type="number" min="0" step="0.1" placeholder="25.0"
-                   value={oilHours} onChange={e => setOilHours(e.target.value)} />
-
-            <div className="muted">Priority</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {["STD","RUSH"].map(p => (
-                <button key={p} className={`btn btn-sm ${priority === p ? "btn-primary" : "btn-ghost"}`} onClick={() => setPriority(p)}>{p}</button>
-              ))}
-            </div>
-
-            <div className="muted">Analyst</div>
-            <input className="ls-input" value={analyst} onChange={e => setAnalyst(e.target.value)} />
-
-            <div className="muted">Engine context</div>
-            <div className="mono" style={{ color: "var(--ink-2)", fontSize: 11.5 }}>
-              {engine.classLabel} · {engine.oem} · {engine.runHours.toLocaleString()} hr TSMOH · {engine.oil?.name}
-            </div>
           </div>
+          <div>
+            <div className="ls-label">Location</div>
+            <select className="ls-input" value={locationId} onChange={e => setLocationId(e.target.value)} disabled={!siteId}>
+              <option value="">— Any —</option>
+              {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className="ls-label">Asset Type</div>
+            <select className="ls-input" value={assetTypeId} onChange={e => setAssetTypeId(e.target.value)} disabled={!siteId}>
+              <option value="">— Any —</option>
+              {assetTypes.map(at => <option key={at.id} value={at.id}>{at.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className="ls-label">Serial / Equipment</div>
+            {newEngineMode ? (
+              <div style={{ display: "flex", gap: 6 }}>
+                <input className="ls-input" placeholder="Name" value={newEngineName} onChange={e => setNewEngineName(e.target.value)} />
+                <button className="btn btn-sm btn-ghost" onClick={() => setNewEngineMode(false)}>×</button>
+              </div>
+            ) : (
+              <select className="ls-input" value={engineId} onChange={e => {
+                if (e.target.value === "__new__") setNewEngineMode(true);
+                else setEngineId(e.target.value);
+              }} disabled={!siteId}>
+                <option value="">— Select —</option>
+                {engines.map(e => <option key={e.id} value={e.id}>{e.name}{e.tag ? ` · ${e.tag}` : ""}</option>)}
+                <option value="__new__">+ Register new equipment</option>
+              </select>
+            )}
+          </div>
+
+          {newEngineMode && (
+            <>
+              <div style={{ gridColumn: "span 4", color: "var(--ink-3)", fontSize: 11.5 }}>
+                Registering a new piece of equipment under <b>{site?.name}</b>
+                {locationId && <> · <b>{locations.find(l => l.id === locationId)?.name}</b></>}
+                {assetTypeId && <> · <b>{assetTypes.find(at => at.id === assetTypeId)?.name}</b></>}.
+                Location and asset type must be set above.
+              </div>
+              <div style={{ gridColumn: "span 2" }}>
+                <div className="ls-label">Serial number / tag</div>
+                <input className="ls-input" placeholder="QSK60-G4-0123" value={newEngineTag} onChange={e => setNewEngineTag(e.target.value)} />
+              </div>
+            </>
+          )}
+
+          {engine && !newEngineMode && (
+            <div style={{ gridColumn: "span 4", display: "flex", alignItems: "center", gap: 12, fontSize: 12, color: "var(--ink-2)" }}>
+              <Icon name="info" size={12} style={{ color: "var(--ink-3)" }}/>
+              Equipment context: {engine.oem || "—"} · {engine.classLabel || engine.assetTypeName || "—"} · {engine.runHours?.toLocaleString() || 0} hr · {engine.oil?.name || "—"}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* One card per instrument, holding its parameter inputs. */}
-      {instruments.map(inst => {
-        const params = inst.measures.map(code => window.getParam(code)).filter(Boolean);
-        return (
-          <div key={inst.id} className="card" style={{ marginBottom: 16 }}>
-            <div className="card-head">
-              <span className="card-title">{inst.name}</span>
-              <span className="card-sub mono">{inst.brand.toUpperCase()} · {inst.type.toUpperCase()}</span>
-            </div>
-            <div className="card-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
-              {params.map(p => {
-                const isText = p.dir === "info" && (p.code === "ISO4406");  // codes like "21/19/18"
-                return (
-                  <div key={p.code} className="ls-param">
-                    <div className="ls-param-head">
-                      <span className="mono t-id">{p.code}</span>
-                      <span className="ls-param-name">{p.name}</span>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <input className="ls-input mono" type={isText ? "text" : "number"} step="any"
-                             value={readings[p.code]?.value ?? ""}
-                             onChange={e => setReading(p.code, inst.id, e.target.value)}
-                             placeholder={limitPlaceholder(p)} />
-                      <span className="mono t-muted" style={{ fontSize: 11 }}>{p.unit}</span>
-                    </div>
-                    <div className="mono ls-param-lim">{limitDescription(p)}</div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="card-body" style={{ paddingTop: 0, fontSize: 11.5, color: "var(--ink-3)" }}>
-              {inst.notes}
+      {/* 2. Sample Type & Draw ---------------------------------- */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head"><span className="card-title">Sample Type & Draw</span></div>
+        <div className="card-body" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr 1fr", gap: 14, alignItems: "end" }}>
+          <div>
+            <div className="ls-label">Sample type</div>
+            <select className="ls-input" value={typeId} onChange={e => setTypeId(e.target.value)}>
+              {window.SAMPLE_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+            <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)", marginTop: 4 }}>{sampleType.description}</div>
+          </div>
+          <div><div className="ls-label">Component</div><input className="ls-input" value={component} onChange={e => setComponent(e.target.value)} /></div>
+          <div><div className="ls-label">Drawn</div><input type="date" className="ls-input" value={drawnAt} onChange={e => setDrawnAt(e.target.value)} /></div>
+          <div>
+            <div className="ls-label">Priority</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {["STD","RUSH"].map(p => <button key={p} className={`btn btn-sm ${priority === p ? "btn-primary" : "btn-ghost"}`} onClick={() => setPriority(p)}>{p}</button>)}
             </div>
           </div>
-        );
-      })}
+          <div><div className="ls-label">Analyst</div><input className="ls-input" value={analyst} onChange={e => setAnalyst(e.target.value)} /></div>
+        </div>
+      </div>
 
-      {/* Filter patch upload — only for sample types that accept one (diesel). */}
-      {sampleType.acceptsFilterPatch && (
+      {/* 3. Instrument Uploads --------------------------------- */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <span className="card-title">Instrument Uploads</span>
+          <span className="card-sub mono">DROP CSV FROM INSTRUMENT · SERVER AUTO-PARSES</span>
+        </div>
+        <div className="card-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+          <UploadSlot label="IR Vision (.csv)" accept=".csv,.txt" file={irFile}
+                      onPick={f => handleParse("ir", f)} onClear={() => clearFile("ir")}
+                      hint="Density, Cetane, distillation T-points, CFPP, viscosity" />
+          <UploadSlot label="Flash Point (.csv)" accept=".csv,.txt" file={flashFile}
+                      onPick={f => handleParse("flash", f)} onClear={() => clearFile("flash")}
+                      hint="Flash Point closed-cup result" />
+          <UploadSlot label="Additives (.csv)" accept=".csv,.txt" file={addFile}
+                      onPick={f => handleParse("add", f)} onClear={() => clearFile("add")}
+                      hint="Elemental concentrations — S, Fe, Al, Mg, Zn, Pb, Si, Mn, V" />
+          {sampleType.acceptsFilterPatch && (
+            <PhotoSlot label="Filter Patch (image)" dataUrl={filterPatch} onPick={setFilterPatch}/>
+          )}
+        </div>
+        {parseErr && <div className="card-body" style={{ paddingTop: 0, color: "var(--crit)", fontSize: 12 }}>Parse error: {parseErr}</div>}
+      </div>
+
+      {/* 4. Manual readings ----------------------------------- */}
+      {manualCodes.length > 0 && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-head">
-            <span className="card-title">Filter Patch — IP440</span>
-            <span className="card-sub mono">OPTIONAL · IMAGE OF THE PATCH</span>
+            <span className="card-title">Manual Readings</span>
+            <span className="card-sub mono">{manualCodes.length} PARAMETER{manualCodes.length === 1 ? "" : "S"} NOT IN ANY UPLOAD</span>
           </div>
-          <div className="card-body" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-            <label className="btn btn-ghost" style={{ cursor: "pointer" }}>
-              <Icon name="plus" size={12}/> {filterPatch ? "Replace photo" : "Upload photo"}
-              <input type="file" accept="image/*" style={{ display: "none" }}
-                     onChange={async e => {
-                       const f = e.target.files?.[0];
-                       if (!f) return;
-                       const url = await downsizeImage(f, 800, 0.82);
-                       setFilterPatch(url);
-                     }} />
-            </label>
-            {filterPatch && <button className="btn btn-ghost" onClick={() => setFilterPatch(null)}>Remove</button>}
-            {filterPatch && <img src={filterPatch} alt="Filter patch preview" style={{ height: 120, borderRadius: 6, border: "1px solid var(--line)" }} />}
-            {!filterPatch && <span style={{ fontSize: 12, color: "var(--ink-3)" }}>Drag in the JPEG you took at the gravimetric filter. Auto-downsized to 800 px wide.</span>}
+          <div className="card-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+            {manualCodes.map(code => {
+              const p = window.getParam(code);
+              if (!p) return null;
+              const isText = p.dir === "info" && p.code === "ISO4406";
+              return (
+                <div key={code} className="ls-param">
+                  <div className="ls-param-head">
+                    <span className="mono t-id">{code}</span>
+                    <span className="ls-param-name">{p.name}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input className="ls-input mono" type={isText ? "text" : "number"} step="any"
+                           value={readings[code]?.value ?? ""}
+                           onChange={e => e.target.value === "" ? clearManual(code) : setManual(code, e.target.value)}
+                           placeholder={limitPlaceholder(p)} />
+                    <span className="mono t-muted" style={{ fontSize: 11 }}>{p.unit}</span>
+                  </div>
+                  <div className="mono ls-param-lim">{limitDescription(p)}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
 
+      {/* Already-parsed readings — quick reference / override */}
+      {Object.keys(readings).length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-head">
+            <span className="card-title">Captured Readings</span>
+            <span className="card-sub mono">{Object.keys(readings).length} TOTAL</span>
+          </div>
+          <div className="card-body no-pad">
+            <table className="table">
+              <thead><tr><th>Code</th><th>Parameter</th><th style={{textAlign:"right"}}>Value</th><th>Source</th><th></th></tr></thead>
+              <tbody>
+                {Object.entries(readings).map(([code, r]) => {
+                  const p = window.getParam(code);
+                  return (
+                    <tr key={code}>
+                      <td className="mono t-id">{code}</td>
+                      <td>{p?.name || code}</td>
+                      <td className="mono" style={{ textAlign: "right" }}>{r.value} {p?.unit || ""}</td>
+                      <td><Tag tone={r.source === "manual" ? "neutral" : "accent"}>{sourceLabel(r.source)}</Tag></td>
+                      <td style={{ textAlign: "right" }}>
+                        <button className="btn btn-sm btn-ghost" onClick={() => clearManual(code)}><Icon name="close" size={11}/></button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Comment -------------------------------------------- */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head"><span className="card-title">Note (optional)</span></div>
+        <div className="card-head"><span className="card-title">Sample Comment</span></div>
         <div className="card-body">
-          <input className="ls-input" placeholder="Any context worth preserving on the report"
-                 value={noteText} onChange={e => setNoteText(e.target.value)} />
+          <textarea className="ls-input" rows={3}
+                    placeholder="Any context worth preserving on the report"
+                    value={noteText} onChange={e => setNoteText(e.target.value)} />
         </div>
       </div>
 
-      {/* Derived preview */}
-      <div className="card">
-        <div className="card-head">
-          <span className="card-title">Preview</span>
-          <span className="card-sub mono">DERIVED FROM ENTRIES</span>
-        </div>
-        <div className="card-body" style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div>
-            <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)", letterSpacing: 0.1 }}>HEALTH SCORE</div>
-            <div className="mono" style={{ fontSize: 24, fontWeight: 600 }}>{score}</div>
-          </div>
-          <Chip code={code}>{window.COND[code].label.toUpperCase()}</Chip>
-          <div className="mono" style={{ marginLeft: "auto", color: "var(--ink-3)" }}>
-            {Object.keys(readings).length} parameter{Object.keys(readings).length === 1 ? "" : "s"} entered ·
-            status will be {Object.keys(readings).length ? <b>QC</b> : <b>DRAFT</b>}
-          </div>
-        </div>
-        {error && <div className="card-body" style={{ paddingTop: 0, color: "var(--crit)", fontSize: 12.5 }}>Error: {error}</div>}
-      </div>
+      {error && <div className="card" style={{ borderColor: "var(--crit)", color: "var(--crit)" }}>
+        <div className="card-body">Error: {error}</div>
+      </div>}
 
       <style>{`
-        .type-card { text-align: left; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-elev); cursor: pointer; }
-        .type-card:hover { border-color: var(--accent-line); }
-        .type-card.is-active { border-color: var(--accent); background: var(--accent-soft); }
-        .type-name { font-size: 13px; font-weight: 500; }
-        .type-sub  { font-size: 12px; color: var(--ink-3); margin-top: 3px; }
-        .type-instr { font-size: 10.5px; color: var(--ink-3); margin-top: 6px; letter-spacing: 0.04em; }
-        .ls-input  { padding: 7px 10px; border-radius: 7px; background: var(--bg-sunken); border: 1px solid transparent; color: var(--ink); font-size: 13px; width: 100%; }
+        .ls-label { font-size: 10px; letter-spacing: 0.1em; color: var(--ink-3); text-transform: uppercase; font-family: var(--mono); margin-bottom: 4px; }
+        .ls-input { padding: 7px 10px; border-radius: 7px; background: var(--bg-sunken); border: 1px solid transparent; color: var(--ink); font-size: 13px; width: 100%; font-family: inherit; }
         .ls-input:focus { outline: 0; border-color: var(--accent-line); background: var(--bg-elev); }
         .ls-param { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-elev); }
         .ls-param-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; }
         .ls-param-name { font-size: 12px; color: var(--ink-2); }
         .ls-param-lim  { font-size: 10.5px; color: var(--ink-3); margin-top: 4px; letter-spacing: 0.04em; }
+        .ls-drop { padding: 14px; border: 1px dashed var(--line); border-radius: 8px; background: var(--bg-elev); display: flex; flex-direction: column; gap: 8px; min-height: 110px; }
+        .ls-drop.has-file { border-style: solid; border-color: var(--ok); background: rgba(47,125,79,0.04); }
+        .ls-drop-title { font-size: 12px; font-weight: 600; }
+        .ls-drop-hint { font-size: 11px; color: var(--ink-3); }
+        .ls-pick { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 6px; background: var(--bg-sunken); cursor: pointer; font-size: 12px; }
+        .ls-pick:hover { background: var(--bg); }
+        .ls-file-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink); }
+        .ls-file-name { font-family: var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
       `}</style>
     </div>
   );
 }
 
-// Crude scoring derived from how many readings exceed warn/alarm.
-// Pure / local — server doesn't re-derive on its own.
+function UploadSlot({ label, accept, file, onPick, onClear, hint }) {
+  return (
+    <div className={`ls-drop ${file ? "has-file" : ""}`}>
+      <div className="ls-drop-title">{label}</div>
+      <div className="ls-drop-hint">{hint}</div>
+      {file ? (
+        <div className="ls-file-row">
+          <Icon name="check" size={12} style={{ color: "var(--ok)" }}/>
+          <span className="ls-file-name" title={file.name}>{file.name}</span>
+          <span className="mono t-muted" style={{ fontSize: 11 }}>· {file.count} reading{file.count === 1 ? "" : "s"}</span>
+          <button className="btn btn-sm btn-ghost" style={{ marginLeft: "auto" }} onClick={onClear}>Remove</button>
+        </div>
+      ) : (
+        <label className="ls-pick">
+          <Icon name="plus" size={11}/> Choose file
+          <input type="file" accept={accept} style={{ display: "none" }} onChange={e => onPick(e.target.files?.[0])}/>
+        </label>
+      )}
+    </div>
+  );
+}
+
+function PhotoSlot({ label, dataUrl, onPick }) {
+  const onChange = async (file) => {
+    if (!file) return;
+    const url = await downsizeImage(file, 800, 0.82);
+    onPick(url);
+  };
+  return (
+    <div className={`ls-drop ${dataUrl ? "has-file" : ""}`}>
+      <div className="ls-drop-title">{label}</div>
+      <div className="ls-drop-hint">Photo of the gravimetric filter patch. Auto-resized to 800 px.</div>
+      {dataUrl ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <img src={dataUrl} alt="Filter patch preview" style={{ height: 70, borderRadius: 4, border: "1px solid var(--line)" }} />
+          <button className="btn btn-sm btn-ghost" onClick={() => onPick(null)}>Remove</button>
+        </div>
+      ) : (
+        <label className="ls-pick">
+          <Icon name="plus" size={11}/> Choose image
+          <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => onChange(e.target.files?.[0])}/>
+        </label>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+
+function sourceLabel(src) {
+  return src === "ir" ? "IR Vision" : src === "flash" ? "Flash Point" : src === "add" ? "Additives" : "Manual";
+}
+
+// Approximate score driven by how many readings exceed their limits.
 function deriveScore(readings, assetClass) {
   const limits = window.getLimits(assetClass);
   let penalty = 0;
@@ -270,13 +492,19 @@ function deriveScore(readings, assetClass) {
     const v = Number(r.value);
     if (!isFinite(v)) continue;
     const lim = limits[code];
-    if (!lim) continue;
-    if (typeof lim.alarm === "number" && v >= lim.alarm) penalty += 18;
-    else if (typeof lim.warn === "number" && v >= lim.warn) penalty += 8;
-    if (code === "Visc100" && lim.target) {
-      const dev = Math.abs(v - lim.target) / lim.target;
-      if (dev > 0.15) penalty += 18;
-      else if (dev > 0.10) penalty += 8;
+    if (lim) {
+      if (typeof lim.alarm === "number" && v >= lim.alarm) penalty += 18;
+      else if (typeof lim.warn === "number" && v >= lim.warn) penalty += 8;
+      if (code === "Visc100" && lim.target) {
+        const dev = Math.abs(v - lim.target) / lim.target;
+        if (dev > 0.15) penalty += 18;
+        else if (dev > 0.10) penalty += 8;
+      }
+    }
+    const dp = window.getParam(code);
+    if (dp && dp.paramSet === "diesel" && dp.dir !== "info") {
+      const status = window.evalDieselStatus(dp, v);
+      if (status === "fail") penalty += 16;
     }
   }
   return Math.max(4, Math.min(99, 95 - penalty));
@@ -285,16 +513,15 @@ function deriveScore(readings, assetClass) {
 function derivedFlags(readings) {
   const flags = [];
   const v = code => Number(readings[code]?.value);
-  if (v("Fe") >= 35) flags.push("Fe↑");
-  if (v("Cr") >= 5)  flags.push("Cr↑");
-  if (v("Al") >= 8)  flags.push("Al↑");
+  if (v("Fe") >= 35)   flags.push("Fe↑");
+  if (v("Cr") >= 5)    flags.push("Cr↑");
+  if (v("Al") >= 8)    flags.push("Al↑");
   if (v("H2O") >= 200) flags.push("H₂O");
-  if (v("Fuel") >= 2) flags.push("Fuel%");
-  if (v("Si") >= 15)  flags.push("Si↑");
+  if (v("Fuel") >= 2)  flags.push("Fuel%");
+  if (v("Si") >= 15)   flags.push("Si↑");
   return flags;
 }
 
-// Limit description rendered below each instrument-input cell.
 function limitDescription(p) {
   if (!p) return "—";
   if (p.dir === "min")   return `min ${p.min}${p.unit ? " " + p.unit : ""}`;
@@ -312,8 +539,6 @@ function limitPlaceholder(p) {
   return "—";
 }
 
-// Client-side resize for filter-patch uploads. Mirrors the helper in
-// screen-sample.jsx but kept local so Log Sample is self-contained.
 function downsizeImage(file, maxW = 800, quality = 0.82) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

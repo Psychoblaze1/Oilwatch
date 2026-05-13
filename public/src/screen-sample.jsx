@@ -203,6 +203,8 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
           <div className="card-body" style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "8px 14px", fontSize: 12.5 }}>
             <div className="muted">OEM</div><div>{asset.oem}</div>
             <div className="muted">Class</div><div>{asset.classLabel}</div>
+            {sample.locationName && <><div className="muted">Location</div><div>{sample.locationName}</div></>}
+            {sample.assetTypeName && <><div className="muted">Asset Type</div><div>{sample.assetTypeName}</div></>}
             <div className="muted">Criticality</div><div><Tag tone="accent">Class {asset.criticality}</Tag></div>
             <div className="muted">Engine hours (TSMOH)</div><div className="mono">{asset.runHours.toLocaleString()} h</div>
             <div className="muted">Oil</div><div>{asset.oil.brand} · {asset.oil.name}</div>
@@ -314,8 +316,8 @@ function DieselSampleView({ sample, asset, results, status, canApprove, canPubli
         <div className="card-body no-pad">
           <div className="dsl-info">
             <DslInfoCell label="Company name" value={site.name || sample.siteName} />
-            <DslInfoCell label="Site"         value={site.region} />
-            <DslInfoCell label="Component"    value={sample.component} />
+            <DslInfoCell label="Location"     value={sample.locationName || site.region || "—"} />
+            <DslInfoCell label="Asset Type"   value={sample.assetTypeName || asset?.classLabel || "—"} />
             <DslInfoCell label="Equipment"    value={asset?.name || "None"} />
             <DslInfoCell label="Sample Date"  value={window.fmtDate(sample.receivedAt)} />
             <DslInfoCell label="Diesel Type"  value={sampleType.label.replace(/^Diesel\s*[—-]\s*/, "")} />

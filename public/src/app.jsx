@@ -103,6 +103,7 @@ function App() {
           {route === "ai"         && <ScreenAI         focus={focus} openAI={() => setAIOpen(true)} />}
           {route === "limits"     && <ScreenLimits     role={role} />}
           {route === "rules"      && <ScreenRules      role={role} />}
+          {route === "manage"     && <ScreenManage     role={role} refresh={refresh} />}
           {route === "log-sample" && <ScreenLogSample  refresh={refresh} setRoute={setRoute} focus={focus} />}
           {route === "ref"        && <ScreenRef />}
           {route === "sample"     && <ScreenSample     sampleId={focused?.id} back={back} openAI={() => setAIOpen(true)} role={role} refresh={refresh}/>}

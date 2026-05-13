@@ -265,6 +265,8 @@ function fmtTime(d) {
 // ---- Live data loaded from /api/bootstrap ----------------------------
 
 window.SITES = [];
+window.LOCATIONS = [];
+window.ASSET_TYPES = [];
 window.ASSETS = [];
 window.SAMPLES = [];
 window.ALARMS = [];
@@ -288,16 +290,32 @@ function hydrateDates() {
 
 async function bootstrap() {
   const b = await window.api.bootstrap();
-  // Rename `engines` -> `ASSETS` to match existing screen contracts.
-  window.SITES   = b.sites.map(s => ({ ...s }));
-  window.ASSETS  = b.engines.map(e => ({ ...e }));
-  window.SAMPLES = b.samples.map(s => ({ ...s }));
-  window.ALARMS  = b.alarms.map(a => ({ ...a }));
+  window.SITES       = (b.sites || []).map(s => ({ ...s }));
+  window.LOCATIONS   = (b.locations || []).map(l => ({ ...l }));
+  window.ASSET_TYPES = (b.assetTypes || []).map(a => ({ ...a }));
+  window.ASSETS      = (b.engines || []).map(e => ({ ...e }));
+  window.SAMPLES     = (b.samples || []).map(s => ({ ...s }));
+  window.ALARMS      = (b.alarms || []).map(a => ({ ...a }));
   _limits = b.limits || [];
   _rules  = b.rules  || [];
   hydrateDates();
 }
 window.bootstrap = bootstrap;
+
+// --- Hierarchy helpers -----------------------------------------------
+function getLocationsForSite(siteId) {
+  return window.LOCATIONS.filter(l => l.siteId === siteId);
+}
+function getAssetTypesForSite(siteId, locationId) {
+  return window.ASSET_TYPES.filter(a =>
+    a.siteId === siteId && (!locationId || a.locationId === locationId || a.locationId == null));
+}
+function getEnginesForAssetType(siteId, locationId, assetTypeId) {
+  return window.ASSETS.filter(e =>
+    e.site === siteId &&
+    (!locationId || e.locationId === locationId) &&
+    (!assetTypeId || e.assetTypeId === assetTypeId));
+}
 
 // ---- Limits (server-backed; reads cache, writes call API) ------------
 
@@ -498,4 +516,6 @@ Object.assign(window, {
   // Diesel helpers
   getParam, evalDieselStatus, resolveDieselResults, dieselVerdict,
   getSampleType, isDieselSample,
+  // Hierarchy helpers
+  getLocationsForSite, getAssetTypesForSite, getEnginesForAssetType,
 });

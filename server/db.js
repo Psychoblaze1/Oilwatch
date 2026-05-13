@@ -17,9 +17,24 @@ db.exec(`
     id TEXT PRIMARY KEY, code TEXT, name TEXT, region TEXT,
     assets_count INTEGER, samples28d INTEGER
   );
+  CREATE TABLE IF NOT EXISTS locations (
+    id TEXT PRIMARY KEY,
+    site_id TEXT REFERENCES sites(id),
+    name TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS asset_types (
+    id TEXT PRIMARY KEY,
+    site_id TEXT REFERENCES sites(id),
+    location_id TEXT REFERENCES locations(id),
+    name TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_locations_site ON locations(site_id);
+  CREATE INDEX IF NOT EXISTS idx_asset_types_site ON asset_types(site_id);
   CREATE TABLE IF NOT EXISTS engines (
     id TEXT PRIMARY KEY, tag TEXT, name TEXT,
     site TEXT REFERENCES sites(id),
+    location_id TEXT REFERENCES locations(id),
+    asset_type_id TEXT REFERENCES asset_types(id),
     class TEXT, class_label TEXT, oem TEXT,
     oil_brand TEXT, oil_name TEXT, oil_iso TEXT,
     run_hours INTEGER, criticality TEXT,
@@ -40,7 +55,13 @@ db.exec(`
     results_json TEXT,
     sample_type TEXT DEFAULT 'piston-oil',
     filter_patch TEXT,
-    note TEXT
+    note TEXT,
+    ir_vision_data TEXT,
+    flash_point_data REAL,
+    additives_data TEXT,
+    ir_vision_file TEXT,
+    flash_point_file TEXT,
+    additives_file TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_samples_engine ON samples(engine_id);
   CREATE INDEX IF NOT EXISTS idx_samples_status ON samples(status);
@@ -65,16 +86,26 @@ db.exec(`
   );
 `);
 
-// Live-migrate older DBs that pre-date the diesel columns. SQLite's
-// IF NOT EXISTS on CREATE TABLE skips adding columns, so we ALTER.
-(function migrateSamples() {
-  const cols = db.prepare("PRAGMA table_info(samples)").all().map(c => c.name);
-  if (!cols.includes("sample_type")) {
+// Live-migrate older DBs that pre-date later columns. SQLite skips
+// adding columns on CREATE TABLE IF NOT EXISTS, so we ALTER as needed.
+(function migrate() {
+  const sampleCols = db.prepare("PRAGMA table_info(samples)").all().map(c => c.name);
+  if (!sampleCols.includes("sample_type")) {
     db.exec("ALTER TABLE samples ADD COLUMN sample_type TEXT DEFAULT 'piston-oil'");
     db.exec("UPDATE samples SET sample_type = 'piston-oil' WHERE sample_type IS NULL");
   }
-  if (!cols.includes("filter_patch")) db.exec("ALTER TABLE samples ADD COLUMN filter_patch TEXT");
-  if (!cols.includes("note"))         db.exec("ALTER TABLE samples ADD COLUMN note TEXT");
+  if (!sampleCols.includes("filter_patch"))     db.exec("ALTER TABLE samples ADD COLUMN filter_patch TEXT");
+  if (!sampleCols.includes("note"))             db.exec("ALTER TABLE samples ADD COLUMN note TEXT");
+  if (!sampleCols.includes("ir_vision_data"))   db.exec("ALTER TABLE samples ADD COLUMN ir_vision_data TEXT");
+  if (!sampleCols.includes("flash_point_data")) db.exec("ALTER TABLE samples ADD COLUMN flash_point_data REAL");
+  if (!sampleCols.includes("additives_data"))   db.exec("ALTER TABLE samples ADD COLUMN additives_data TEXT");
+  if (!sampleCols.includes("ir_vision_file"))   db.exec("ALTER TABLE samples ADD COLUMN ir_vision_file TEXT");
+  if (!sampleCols.includes("flash_point_file")) db.exec("ALTER TABLE samples ADD COLUMN flash_point_file TEXT");
+  if (!sampleCols.includes("additives_file"))   db.exec("ALTER TABLE samples ADD COLUMN additives_file TEXT");
+
+  const engineCols = db.prepare("PRAGMA table_info(engines)").all().map(c => c.name);
+  if (!engineCols.includes("location_id"))   db.exec("ALTER TABLE engines ADD COLUMN location_id TEXT");
+  if (!engineCols.includes("asset_type_id")) db.exec("ALTER TABLE engines ADD COLUMN asset_type_id TEXT");
 })();
 
 function isSeeded() {
@@ -83,15 +114,25 @@ function isSeeded() {
 
 function getBootstrap() {
   const sites = db.prepare("SELECT id, code, name, region, assets_count AS assets, samples28d FROM sites").all();
+  const locations = db.prepare("SELECT id, site_id AS siteId, name FROM locations").all();
+  const assetTypes = db.prepare("SELECT id, site_id AS siteId, location_id AS locationId, name FROM asset_types").all();
   const engines = db.prepare(`
-    SELECT e.id, e.tag, e.name, e.site, s.name AS siteName, e.class, e.class_label AS classLabel, e.oem,
+    SELECT e.id, e.tag, e.name, e.site, s.name AS siteName,
+           e.location_id AS locationId, l.name AS locationName,
+           e.asset_type_id AS assetTypeId, at.name AS assetTypeName,
+           e.class, e.class_label AS classLabel, e.oem,
            e.oil_brand AS oil_brand, e.oil_name AS oil_name, e.oil_iso AS oil_iso,
            e.run_hours AS runHours, e.criticality, e.health, e.code,
            e.dimensions_json AS dimensions_json,
            e.last_sample AS lastSample, e.next_due AS nextDue, e.rul_days AS rulDays
-    FROM engines e LEFT JOIN sites s ON e.site = s.id
+    FROM engines e
+    LEFT JOIN sites       s  ON e.site = s.id
+    LEFT JOIN locations   l  ON e.location_id = l.id
+    LEFT JOIN asset_types at ON e.asset_type_id = at.id
   `).all().map(r => ({
     id: r.id, tag: r.tag, name: r.name, site: r.site, siteName: r.siteName,
+    locationId: r.locationId, locationName: r.locationName,
+    assetTypeId: r.assetTypeId, assetTypeName: r.assetTypeName,
     class: r.class, classLabel: r.classLabel, oem: r.oem,
     oil: { brand: r.oil_brand, name: r.oil_name, iso: r.oil_iso },
     runHours: r.runHours, criticality: r.criticality, health: r.health, code: r.code,
@@ -100,17 +141,27 @@ function getBootstrap() {
   }));
   const samples = db.prepare(`
     SELECT sa.id, sa.barcode, sa.engine_id AS assetId, e.name AS assetName, e.tag AS assetTag,
-           si.name AS siteName, sa.component, sa.oil_name AS oil,
+           si.name AS siteName,
+           l.id AS locationId, l.name AS locationName,
+           at.id AS assetTypeId, at.name AS assetTypeName,
+           sa.component, sa.oil_name AS oil,
            sa.received_at AS receivedAt, sa.status, sa.priority,
            sa.score, sa.code, sa.analyst, sa.flags_json, sa.results_json,
-           sa.sample_type AS sampleType, sa.filter_patch AS filterPatch, sa.note
+           sa.sample_type AS sampleType, sa.filter_patch AS filterPatch, sa.note,
+           sa.ir_vision_data AS irVisionData, sa.flash_point_data AS flashPointData, sa.additives_data AS additivesData,
+           sa.ir_vision_file AS irVisionFile, sa.flash_point_file AS flashPointFile, sa.additives_file AS additivesFile
     FROM samples sa
-    LEFT JOIN engines e ON sa.engine_id = e.id
-    LEFT JOIN sites si ON e.site = si.id
+    LEFT JOIN engines      e  ON sa.engine_id = e.id
+    LEFT JOIN sites        si ON e.site = si.id
+    LEFT JOIN locations    l  ON e.location_id = l.id
+    LEFT JOIN asset_types  at ON e.asset_type_id = at.id
     ORDER BY datetime(sa.received_at) DESC
   `).all().map(r => ({
     id: r.id, barcode: r.barcode, assetId: r.assetId, assetName: r.assetName, assetTag: r.assetTag,
-    siteName: r.siteName, component: r.component, oil: r.oil,
+    siteName: r.siteName,
+    locationId: r.locationId, locationName: r.locationName,
+    assetTypeId: r.assetTypeId, assetTypeName: r.assetTypeName,
+    component: r.component, oil: r.oil,
     receivedAt: r.receivedAt, status: r.status, priority: r.priority,
     score: r.score, code: r.code, analyst: r.analyst,
     flags: JSON.parse(r.flags_json || "[]"),
@@ -118,6 +169,12 @@ function getBootstrap() {
     sampleType: r.sampleType || "piston-oil",
     filterPatch: r.filterPatch || null,
     note: r.note || null,
+    irVisionData:    JSON.parse(r.irVisionData || "null"),
+    flashPointData:  r.flashPointData != null ? Number(r.flashPointData) : null,
+    additivesData:   JSON.parse(r.additivesData || "null"),
+    irVisionFile:    r.irVisionFile || null,
+    flashPointFile:  r.flashPointFile || null,
+    additivesFile:   r.additivesFile || null,
   }));
   const alarms = db.prepare(`
     SELECT a.id, a.engine_id AS assetId, e.name AS assetName, e.tag AS assetTag,
@@ -138,7 +195,7 @@ function getBootstrap() {
     conditions: JSON.parse(r.conditions_json || "[]"),
     action: r.action, createdAt: r.createdAt, lastTriggered: r.lastTriggered,
   }));
-  return { sites, engines, samples, alarms, limits, rules };
+  return { sites, locations, assetTypes, engines, samples, alarms, limits, rules };
 }
 
 // ---- Mutations -------------------------------------------------------
@@ -146,10 +203,14 @@ function getBootstrap() {
 const insertSampleStmt = db.prepare(`
   INSERT INTO samples (id, barcode, engine_id, component, oil_name, received_at,
                        status, priority, score, code, analyst, flags_json, results_json,
-                       sample_type, filter_patch, note)
+                       sample_type, filter_patch, note,
+                       ir_vision_data, flash_point_data, additives_data,
+                       ir_vision_file, flash_point_file, additives_file)
   VALUES (@id, @barcode, @engine_id, @component, @oil_name, @received_at,
           @status, @priority, @score, @code, @analyst, @flags_json, @results_json,
-          @sample_type, @filter_patch, @note)
+          @sample_type, @filter_patch, @note,
+          @ir_vision_data, @flash_point_data, @additives_data,
+          @ir_vision_file, @flash_point_file, @additives_file)
 `);
 function createSample(s) {
   insertSampleStmt.run({
@@ -169,7 +230,79 @@ function createSample(s) {
     sample_type: s.sampleType || "piston-oil",
     filter_patch: s.filterPatch || null,
     note: s.note || null,
+    ir_vision_data:   s.irVisionData ? JSON.stringify(s.irVisionData) : null,
+    flash_point_data: typeof s.flashPointData === "number" ? s.flashPointData : null,
+    additives_data:   s.additivesData ? JSON.stringify(s.additivesData) : null,
+    ir_vision_file:   s.irVisionFile || null,
+    flash_point_file: s.flashPointFile || null,
+    additives_file:   s.additivesFile || null,
   });
+}
+
+// --- Locations / Asset Types / Sites / Engines management ----------
+
+function uid(prefix) {
+  return prefix + "-" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-3);
+}
+
+const insertLocStmt = db.prepare("INSERT INTO locations (id, site_id, name) VALUES (?, ?, ?)");
+function createLocation(siteId, name) {
+  const id = uid("loc");
+  insertLocStmt.run(id, siteId, name);
+  return { id, siteId, name };
+}
+function deleteLocation(id) { db.prepare("DELETE FROM locations WHERE id = ?").run(id); }
+
+const insertAtStmt = db.prepare("INSERT INTO asset_types (id, site_id, location_id, name) VALUES (?, ?, ?, ?)");
+function createAssetType(siteId, locationId, name) {
+  const id = uid("at");
+  insertAtStmt.run(id, siteId, locationId || null, name);
+  return { id, siteId, locationId: locationId || null, name };
+}
+function deleteAssetType(id) { db.prepare("DELETE FROM asset_types WHERE id = ?").run(id); }
+
+const insertSiteStmt = db.prepare("INSERT INTO sites (id, code, name, region, assets_count, samples28d) VALUES (?, ?, ?, ?, 0, 0)");
+function createSite({ name, code, region }) {
+  const id = uid("site");
+  insertSiteStmt.run(id, code || "", name, region || "");
+  return { id, code: code || "", name, region: region || "", assets: 0, samples28d: 0 };
+}
+
+const insertEngineStmt = db.prepare(`
+  INSERT INTO engines (id, tag, name, site, location_id, asset_type_id,
+                       class, class_label, oem, oil_brand, oil_name, oil_iso,
+                       run_hours, criticality, health, code, dimensions_json,
+                       last_sample, next_due, rul_days)
+  VALUES (@id, @tag, @name, @site, @location_id, @asset_type_id,
+          @class, @class_label, @oem, @oil_brand, @oil_name, @oil_iso,
+          @run_hours, @criticality, @health, @code, @dimensions_json,
+          @last_sample, @next_due, @rul_days)
+`);
+function createEngine(e) {
+  const id = e.id || uid("A");
+  insertEngineStmt.run({
+    id,
+    tag: e.tag || "",
+    name: e.name || "",
+    site: e.siteId || null,
+    location_id: e.locationId || null,
+    asset_type_id: e.assetTypeId || null,
+    class: e.classId || null,
+    class_label: e.classLabel || null,
+    oem: e.oem || null,
+    oil_brand: e.oilBrand || null,
+    oil_name:  e.oilName  || null,
+    oil_iso:   e.oilIso   || null,
+    run_hours: e.runHours ?? 0,
+    criticality: e.criticality || "C",
+    health: e.health ?? 90,
+    code:   e.code   ?? 1,
+    dimensions_json: JSON.stringify(e.dimensions || []),
+    last_sample: e.lastSample || null,
+    next_due:    e.nextDue || null,
+    rul_days:    e.rulDays ?? 90,
+  });
+  return { id };
 }
 
 const updateFilterPatchStmt = db.prepare("UPDATE samples SET filter_patch = ? WHERE id = ?");
@@ -236,4 +369,8 @@ module.exports = {
   setAlarmAck, ackAllAlarms,
   setLimit, resetLimits,
   saveRule, deleteRule, nextRuleId,
+  createSite,
+  createLocation, deleteLocation,
+  createAssetType, deleteAssetType,
+  createEngine,
 };

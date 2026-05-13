@@ -27,6 +27,7 @@ function Sidebar({ route, setRoute, role, setRole, openAI }) {
     { id: "ai",        icon: "ai",        label: "AI Studio" },
     { id: "limits",    icon: "limits",    label: "Limits" },
     { id: "rules",     icon: "rules",     label: "Rules" },
+    { id: "manage",    icon: "settings",  label: "Manage" },
     { id: "ref",       icon: "ref",       label: "Reference" },
   ];
   return (
@@ -112,6 +113,7 @@ function Topbar({ site, setSite, route, openAI, onSearch, dark, onToggleTheme })
     ai:        "AI Studio",
     limits:    "Editing Limits",
     rules:     "Rules Engine",
+    manage:    "Manage",
     ref:       "Reference Library",
     sample:    "Sample",
     asset:     "Asset",
