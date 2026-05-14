@@ -11,10 +11,25 @@ function ScreenManage({ role, refresh }) {
   const canEdit = role === "MANAGER" || role === "ADMIN";
   const [siteId, setSiteId] = React.useState(window.SITES[0]?.id || "");
   const [, force] = React.useReducer(x => x + 1, 0);
+  const [branding, setBranding] = React.useState(() => window.BRANDING || { labName: "Oilwatch", accentColor: "#c2410c", logo: null, tagline: "" });
   React.useEffect(() => { if (!siteId && window.SITES[0]) setSiteId(window.SITES[0].id); }, [window.SITES.length]);
   const site = window.SITES.find(s => s.id === siteId);
 
   const refreshAll = async () => { await window.bootstrap(); refresh && refresh(); force(); };
+
+  // --- Branding handlers
+  const saveBranding = async (patch) => {
+    if (!canEdit) return;
+    const next = { ...branding, ...patch };
+    setBranding(next);
+    window.BRANDING = next;
+    await window.api.saveBranding(next);
+  };
+  const onLogoFile = async (file) => {
+    if (!file) return;
+    const url = await dataUrlFromImage(file, 600, 0.85);
+    saveBranding({ logo: url });
+  };
 
   // --- Add Site form
   const [newSite, setNewSite] = React.useState({ name: "", code: "", region: "" });
@@ -74,6 +89,66 @@ function ScreenManage({ role, refresh }) {
         </div>
         <div className="page-actions">
           {!canEdit && <Tag>READ-ONLY · MANAGER required</Tag>}
+        </div>
+      </div>
+
+      {/* Lab branding — drives the PDF report header */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <span className="card-title">Lab Branding</span>
+          <span className="card-sub mono">APPLIES TO EVERY PRINTED REPORT</span>
+        </div>
+        <div className="card-body" style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1.4fr", gap: 16, alignItems: "center" }}>
+          {/* Logo preview / upload */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center", minWidth: 140 }}>
+            <div style={{ width: 110, height: 110, border: "1px dashed var(--line)", borderRadius: 8, display: "grid", placeItems: "center", background: "var(--bg-sunken)", overflow: "hidden" }}>
+              {branding.logo
+                ? <img src={branding.logo} alt="Lab logo" style={{ maxWidth: "100%", maxHeight: "100%" }}/>
+                : <span style={{ fontSize: 11, color: "var(--ink-3)", textAlign: "center", padding: 6 }}>No logo</span>}
+            </div>
+            {canEdit && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <label className="btn btn-sm btn-ghost" style={{ cursor: "pointer" }}>
+                  <Icon name="plus" size={11}/> Upload
+                  <input type="file" accept="image/*" style={{ display: "none" }}
+                         onChange={e => onLogoFile(e.target.files?.[0])}/>
+                </label>
+                {branding.logo && <button className="btn btn-sm btn-ghost" onClick={() => saveBranding({ logo: null })}>Remove</button>}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="mng-label">Lab name</div>
+            <input className="mng-input" value={branding.labName || ""} disabled={!canEdit}
+                   onChange={e => setBranding(b => ({ ...b, labName: e.target.value }))}
+                   onBlur={e => saveBranding({ labName: e.target.value })}
+                   placeholder="Atomic Oil Lab"/>
+          </div>
+
+          <div>
+            <div className="mng-label">Report accent color</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="color" disabled={!canEdit}
+                     style={{ width: 40, height: 32, padding: 0, border: "1px solid var(--line)", borderRadius: 6, background: "transparent" }}
+                     value={branding.accentColor || "#c2410c"}
+                     onChange={e => saveBranding({ accentColor: e.target.value })}/>
+              <input className="mng-input mono" style={{ maxWidth: 110 }} disabled={!canEdit}
+                     value={branding.accentColor || ""}
+                     onChange={e => setBranding(b => ({ ...b, accentColor: e.target.value }))}
+                     onBlur={e => /^#[0-9a-f]{6}$/i.test(e.target.value) && saveBranding({ accentColor: e.target.value })}/>
+            </div>
+            <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)", marginTop: 4 }}>HEADER BAND + PASS/FAIL PILL + STATUS BARS</div>
+          </div>
+
+          <div>
+            <div className="mng-label">Footer / disclaimer tagline</div>
+            <input className="mng-input" disabled={!canEdit}
+                   value={branding.tagline || ""}
+                   onChange={e => setBranding(b => ({ ...b, tagline: e.target.value }))}
+                   onBlur={e => saveBranding({ tagline: e.target.value })}
+                   placeholder="Lab88 VU - advisory report; not a substitute for proper engine maintenance."/>
+          </div>
         </div>
       </div>
 
@@ -263,6 +338,31 @@ function ScreenManage({ role, refresh }) {
       `}</style>
     </div>
   );
+}
+
+// Client-side resize used for the lab-logo upload so we don't ship
+// a 4 MB PNG inside every bootstrap response.
+function dataUrlFromImage(file, maxW = 600, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("invalid image"));
+      img.onload = () => {
+        const ratio = img.width > maxW ? maxW / img.width : 1;
+        const w = Math.round(img.width * ratio);
+        const h = Math.round(img.height * ratio);
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        // Use PNG so logos with transparent backgrounds keep them.
+        resolve(canvas.toDataURL("image/png"));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 window.ScreenManage = ScreenManage;

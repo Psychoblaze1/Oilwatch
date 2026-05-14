@@ -16,7 +16,10 @@
 // ============================================================
 
 (function () {
-  const ACCENT = [194, 65, 12];   // burnt orange (matches --accent default)
+  // Default theme; the live `accent` is resolved per-report from
+  // window.BRANDING so each lab can override it. Status colors stay
+  // standardised — PASS / FAIL / WARN are semantic, not brand.
+  const ACCENT_DEFAULT = [194, 65, 12];   // burnt orange
   const INK    = [28, 26, 23];
   const INK_2  = [74, 70, 64];
   const INK_3  = [128, 122, 112];
@@ -26,6 +29,19 @@
   const WARN   = [184, 133, 20];
   const CRIT   = [184, 51, 31];
   const SEV    = [42, 37, 33];
+
+  // Resolve the active accent color (RGB triplet) from branding.
+  function getAccent() {
+    const b = window.BRANDING || {};
+    const hex = (b.accentColor || "").trim();
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+    if (!m) return ACCENT_DEFAULT;
+    const v = m[1];
+    return [parseInt(v.slice(0,2),16), parseInt(v.slice(2,4),16), parseInt(v.slice(4,6),16)];
+  }
+  function getBranding() {
+    return window.BRANDING || { labName: "Oilwatch", accentColor: "#c2410c", logo: null, tagline: null };
+  }
 
   function statusColor(s) {
     if (s === "alarm") return CRIT;
@@ -37,6 +53,21 @@
   }
   function statusLabel(s) {
     return s === "alarm" ? "ALARM" : s === "warn" ? "WARN" : "OK";
+  }
+  // jsPDF's built-in Helvetica is WinAnsi-encoded and can't render
+  // Unicode mathematical operators like ≥ / ≤ / ≠ — they come out as
+  // mangled escape sequences in the PDF. Substitute with WinAnsi-safe
+  // equivalents at print time. The on-screen UI keeps the prettier
+  // glyphs.
+  function pdfSafe(s) {
+    if (s == null) return "";
+    return String(s)
+      .replace(/≥/g, ">=")
+      .replace(/≤/g, "<=")
+      .replace(/≠/g, "!=")
+      .replace(/—/g, "-")
+      .replace(/–/g, "-")
+      .replace(/·/g, "-");
   }
   function fmt(v) {
     if (v == null) return "—";
@@ -57,44 +88,73 @@
   const COL_W = PAGE.W - PAGE.M * 2;
 
   function header(doc, title, subId, subRight) {
-    // Orange band
-    doc.setFillColor(...ACCENT);
+    const accent = getAccent();
+    const brand = getBranding();
+    const labName = (brand.labName || "Oilwatch").toUpperCase();
+    const logo = brand.logo;
+
+    // Header band in the active brand accent.
+    doc.setFillColor(...accent);
     doc.rect(0, 0, PAGE.W, 56, "F");
+
+    let cursorX = PAGE.M;
+
+    // Optional brand logo on the left of the band.
+    if (logo && typeof logo === "string" && logo.startsWith("data:")) {
+      try {
+        const fmtName = /image\/png/i.test(logo) ? "PNG" : "JPEG";
+        doc.addImage(logo, fmtName, PAGE.M, 12, 32, 32, undefined, "FAST");
+        cursorX = PAGE.M + 40;
+      } catch (_) { /* fall back to text-only if jsPDF can't decode */ }
+    }
 
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
-    doc.text("OILWATCH", PAGE.M, 36);
+    doc.text(pdfSafe(labName), cursorX, 36);
 
+    // Title sits next to the lab name; width = labName text width + gap.
+    const titleX = cursorX + doc.getTextWidth(pdfSafe(labName)) + 14;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
-    doc.text(title, PAGE.M + 115, 36);
+    doc.text(pdfSafe(title), titleX, 36);
 
     doc.setFontSize(9);
-    if (subId)    doc.text(subId,    RIGHT, 22, { align: "right" });
-    if (subRight) doc.text(subRight, RIGHT, 38, { align: "right" });
+    if (subId)    doc.text(pdfSafe(subId),    RIGHT, 22, { align: "right" });
+    if (subRight) doc.text(pdfSafe(subRight), RIGHT, 38, { align: "right" });
   }
 
-  function footer(doc, sampleId) {
+  function footer(doc, sampleId, opts = {}) {
     const y = PAGE.H - 32;
+    const brand = getBranding();
+    const labName = (brand.labName || "Oilwatch");
+    const customTag = brand.tagline && brand.tagline.trim();
+    const tag = opts.tag || customTag || `${labName} - advisory report; not a substitute for proper engine maintenance.`;
+    const pageNum = opts.pageNum != null ? opts.pageNum : doc.internal.getNumberOfPages();
+    const totalPages = opts.totalPages != null ? opts.totalPages : doc.internal.getNumberOfPages();
     doc.setDrawColor(...LINE);
     doc.setLineWidth(0.5);
     doc.line(PAGE.M, y, RIGHT, y);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(...INK_3);
-    doc.text("Oilwatch · Lab88 VU · advisory report — not a substitute for proper engine maintenance.", PAGE.M, y + 14);
-    if (sampleId) doc.text(`${sampleId}  ·  Page ${doc.internal.getNumberOfPages()}`, RIGHT, y + 14, { align: "right" });
+    doc.text(pdfSafe(tag), PAGE.M, y + 14);
+    if (sampleId) doc.text(`${sampleId}  -  Page ${pageNum} of ${totalPages}`, RIGHT, y + 14, { align: "right" });
   }
 
-  function sectionHead(doc, y, label) {
+  // Section header. Defaults to a full-page-width underline; pass
+  // { x, w } to render the title and underline scoped to a single column
+  // (used by side-by-side tables so titles don't overprint each other).
+  function sectionHead(doc, y, label, opts = {}) {
+    const x = opts.x ?? PAGE.M;
+    const w = opts.w ?? (RIGHT - PAGE.M);
     doc.setTextColor(...INK_3);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
-    doc.text(label.toUpperCase(), PAGE.M, y);
+    doc.text(pdfSafe(label.toUpperCase()), x, y);
     doc.setDrawColor(...LINE);
     doc.setLineWidth(0.5);
-    doc.line(PAGE.M, y + 4, RIGHT, y + 4);
+    doc.line(x, y + 4, x + w, y + 4);
     return y + 16;
   }
 
@@ -102,10 +162,10 @@
     doc.setTextColor(...INK_3);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-    doc.text(label.toUpperCase(), x, y);
+    doc.text(pdfSafe(label.toUpperCase()), x, y);
     doc.setTextColor(...INK);
     doc.setFontSize(10);
-    const lines = doc.splitTextToSize(String(value ?? "—"), w || 220);
+    const lines = doc.splitTextToSize(pdfSafe(value ?? "-"), w || 220);
     doc.text(lines, x, y + 13);
     return y + 13 + lines.length * 12;
   }
@@ -114,7 +174,7 @@
     doc.setTextColor(...INK);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
-    const lines = doc.splitTextToSize(text, w);
+    const lines = doc.splitTextToSize(pdfSafe(text), w);
     doc.text(lines, x, y);
     return y + lines.length * 13;
   }
@@ -354,7 +414,7 @@
     const total = doc.internal.getNumberOfPages();
     for (let p = 1; p <= total; p++) {
       doc.setPage(p);
-      footer(doc, sample.id);
+      footer(doc, sample.id, { pageNum: p, totalPages: total });
     }
 
     return doc;
@@ -499,7 +559,7 @@
     const total = doc.internal.getNumberOfPages();
     for (let p = 1; p <= total; p++) {
       doc.setPage(p);
-      footer(doc, asset.tag);
+      footer(doc, asset.tag, { pageNum: p, totalPages: total });
     }
     return doc;
   }
@@ -569,12 +629,15 @@
 
   // Format a parameter limit as a printable string ("≥ 55 °C min",
   // "≤ 350.0 ppm max", "2.00 - 5.30 mm²/s").
+  // Limit caption used in the Critical Properties table. Strictly ASCII
+  // operators so the WinAnsi-encoded base fonts render correctly.
   function limitLabel(p) {
-    if (!p) return "—";
-    if (p.dir === "min")   return `≥ ${fmt(p.min)} ${p.unit} min`.trim();
-    if (p.dir === "max")   return `≤ ${fmt(p.max)} ${p.unit} max`.trim();
-    if (p.dir === "range") return `${fmt(p.min)} - ${fmt(p.max)} ${p.unit}`.trim();
-    return "—";
+    if (!p) return "-";
+    const unit = p.unit ? ` ${p.unit}` : "";
+    if (p.dir === "min")   return `min ${fmt(p.min)}${unit}`.trim();
+    if (p.dir === "max")   return `max ${fmt(p.max)}${unit}`.trim();
+    if (p.dir === "range") return `${fmt(p.min)} - ${fmt(p.max)}${unit}`.trim();
+    return "-";
   }
 
   // Big green/red verdict pill + accompanying sentence.
@@ -701,11 +764,13 @@
   }
 
   // Generic two-column table used for Particle Count, Elemental, IR
-  // Vision. Each cell is `{label, value}`. Title is rendered above.
+  // Vision. Each cell is `{label, value}`. Title is rendered above the
+  // table at the same column position so side-by-side tables don't
+  // overprint their headers.
   function twoColTable(doc, startY, title, items, opts = {}) {
-    let y = sectionHead(doc, startY, title);
     const W = opts.width || COL_W;
     const X = opts.x || PAGE.M;
+    let y = sectionHead(doc, startY, title, { x: X, w: W });
     const ROW_H = 18;
     const leftLabel = opts.leftLabel || "Test";
     const rightLabel = opts.rightLabel || "Result";
@@ -715,8 +780,8 @@
     doc.setTextColor(...INK_2);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8.5);
-    doc.text(leftLabel.toUpperCase(), X + 8, y + 12);
-    doc.text(rightLabel.toUpperCase(), X + W - 8, y + 12, { align: "right" });
+    doc.text(pdfSafe(leftLabel.toUpperCase()), X + 8, y + 12);
+    doc.text(pdfSafe(rightLabel.toUpperCase()), X + W - 8, y + 12, { align: "right" });
     y += ROW_H;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
@@ -726,8 +791,8 @@
       doc.setLineWidth(0.4);
       doc.line(X, y + ROW_H, X + W, y + ROW_H);
       doc.setTextColor(...INK);
-      doc.text(it.label, X + 8, y + 12);
-      doc.text(String(it.value ?? "—"), X + W - 8, y + 12, { align: "right" });
+      doc.text(pdfSafe(it.label), X + 8, y + 12);
+      doc.text(pdfSafe(it.value ?? "-"), X + W - 8, y + 12, { align: "right" });
       y += ROW_H;
     }
     return y + 10;
@@ -735,12 +800,9 @@
 
   // Distillation curve — small line chart drawn with jsPDF primitives.
   function drawDistillationChart(doc, x, y, w, h, points) {
-    // Title
-    doc.setTextColor(...INK_2);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text("Distillation Curve", x, y);
-    const top = y + 8, padL = 32, padR = 6, padT = 8, padB = 22;
+    // (Section title is drawn by the caller so it lives in the same
+    // column header row as the IR Vision and Filter Patch sections.)
+    const top = y, padL = 28, padR = 6, padT = 8, padB = 22;
     const ax = x + padL, ay = top + padT;
     const aw = w - padL - padR, ah = h - padT - padB;
     // Axes
@@ -780,11 +842,13 @@
       const xx = ax + (aw * i) / (n - 1);
       doc.text(points[i].label, xx, ay + ah + 11, { align: "center" });
     }
-    doc.setTextColor(...INK_3);
-    doc.text("Temperature (°C)", ax - 24, ay + ah / 2, { align: "center", angle: 90 });
+    // (The Y-axis is already labelled in °C by the tick marks — we
+    //  intentionally don't try to draw a vertical-rotated axis caption
+    //  here since jsPDF's rotated text overlaps the gridline numbers.)
 
-    // Plot
-    doc.setDrawColor(...ACCENT);
+    // Plot — line + dots in the active brand accent.
+    const accent = getAccent();
+    doc.setDrawColor(...accent);
     doc.setLineWidth(1.3);
     const xy = points.map((p, i) => {
       const xx = ax + (aw * i) / (n - 1);
@@ -794,17 +858,14 @@
     for (let i = 1; i < xy.length; i++) {
       doc.line(xy[i-1][0], xy[i-1][1], xy[i][0], xy[i][1]);
     }
-    doc.setFillColor(...ACCENT);
+    doc.setFillColor(...accent);
     for (const [xx, yy] of xy) doc.circle(xx, yy, 1.6, "F");
   }
 
   // Filter patch image cell — embeds the data URL or shows placeholder.
   function drawFilterPatch(doc, x, y, w, h, dataUrl) {
-    doc.setTextColor(...INK_2);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text("Filter Patch — IP440", x, y);
-    const top = y + 8;
+    // (Section title is drawn by the caller in the column header row.)
+    const top = y;
     if (dataUrl && typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
       const fmtName = /image\/png/.test(dataUrl) ? "PNG" : "JPEG";
       // Center a square image in the cell.
@@ -875,28 +936,33 @@
       y = startY + 20 + Math.max(particle.length, elem.length) * 18 + 14;
     }
 
-    // IR Vision Data + Distillation Curve + Filter Patch on the same row.
+    // IR Vision Data + Distillation Curve + Filter Patch on one row.
+    // Each column owns its own section header at its own x position
+    // so titles don't overprint each other.
     const thirdW = (COL_W - 32) / 3;
     const blockH = 150;
-    if (y + blockH + 20 > PAGE.H - 60) { doc.addPage(); y = 80; }
-    const rowY = sectionHead(doc, y, "IR Vision Data");
+    if (y + blockH + 32 > PAGE.H - 60) { doc.addPage(); y = 80; }
 
-    // IR Vision (left column, as a tight two-col table)
-    twoColTable(doc, rowY - 16, "IR Vision Data",
-      irRows.map(r => ({ label: r.name, value: r.value != null ? `${fmt(r.value)}${r.unit ? " " + r.unit : ""}` : "—" })),
+    // Left: IR Vision as a compact two-col table.
+    twoColTable(doc, y, "IR Vision Data",
+      irRows.map(r => ({ label: r.name, value: r.value != null ? `${fmt(r.value)}${r.unit ? " " + r.unit : ""}` : "-" })),
       { x: PAGE.M, width: thirdW, leftLabel: "Parameter", rightLabel: "Value" });
 
-    // Distillation chart (middle)
+    // Middle: distillation chart, header-scoped to middle column.
+    const distX = PAGE.M + thirdW + 16;
+    sectionHead(doc, y, "Distillation Curve", { x: distX, w: thirdW });
     const distillation = results.filter(r => r.group === "distillation").map(r => {
       const labelMap = { Dist_IBP: "IBP", Dist_T10: "T10", Dist_T50: "T50", Dist_T65: "T65", Dist_T85: "T85", Dist_T95: "T95", Dist_FBP: "FBP" };
       return { label: labelMap[r.code] || r.code, value: r.value != null ? Number(r.value) : null };
     });
-    drawDistillationChart(doc, PAGE.M + thirdW + 16, rowY - 8, thirdW, blockH, distillation);
+    drawDistillationChart(doc, distX, y + 6, thirdW, blockH, distillation);
 
-    // Filter patch (right)
-    drawFilterPatch(doc, PAGE.M + (thirdW + 16) * 2, rowY - 8, thirdW, blockH, sample.filterPatch);
+    // Right: filter patch image, header-scoped to right column.
+    const patchX = PAGE.M + (thirdW + 16) * 2;
+    sectionHead(doc, y, "Filter Patch - IP440", { x: patchX, w: thirdW });
+    drawFilterPatch(doc, patchX, y + 6, thirdW, blockH, sample.filterPatch);
 
-    y = rowY + blockH + 8;
+    y += blockH + 24;
 
     // Additional Information / comments
     if (y + 60 > PAGE.H - 60) { doc.addPage(); y = 80; }
@@ -922,7 +988,7 @@
     const total = doc.internal.getNumberOfPages();
     for (let p = 1; p <= total; p++) {
       doc.setPage(p);
-      footer(doc, sample.id);
+      footer(doc, sample.id, { pageNum: p, totalPages: total });
     }
     return doc;
   }

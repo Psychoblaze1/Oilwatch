@@ -84,7 +84,19 @@ db.exec(`
     scope_json TEXT, conditions_json TEXT, action TEXT,
     created_at TEXT, last_triggered TEXT
   );
+  -- Single-row table that stores lab-wide report branding: lab name,
+  -- accent color, and a small logo (PNG/JPEG data URL).
+  CREATE TABLE IF NOT EXISTS branding (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    lab_name TEXT, accent_color TEXT, logo TEXT, tagline TEXT
+  );
 `);
+// Make sure the single branding row exists so PUTs always have a row
+// to update.
+db.prepare(`
+  INSERT OR IGNORE INTO branding (id, lab_name, accent_color, logo, tagline)
+  VALUES (1, 'Oilwatch', '#c2410c', NULL, 'Lab88 VU - advisory report; not a substitute for proper engine maintenance.')
+`).run();
 
 // Live-migrate older DBs that pre-date later columns. SQLite skips
 // adding columns on CREATE TABLE IF NOT EXISTS, so we ALTER as needed.
@@ -195,7 +207,25 @@ function getBootstrap() {
     conditions: JSON.parse(r.conditions_json || "[]"),
     action: r.action, createdAt: r.createdAt, lastTriggered: r.lastTriggered,
   }));
-  return { sites, locations, assetTypes, engines, samples, alarms, limits, rules };
+  const branding = getBranding();
+  return { sites, locations, assetTypes, engines, samples, alarms, limits, rules, branding };
+}
+
+// ---- Branding -----------------------------------------------------
+function getBranding() {
+  const r = db.prepare("SELECT lab_name AS labName, accent_color AS accentColor, logo, tagline FROM branding WHERE id = 1").get();
+  return r || { labName: "Oilwatch", accentColor: "#c2410c", logo: null, tagline: null };
+}
+const updateBrandingStmt = db.prepare("UPDATE branding SET lab_name = ?, accent_color = ?, logo = ?, tagline = ? WHERE id = 1");
+function saveBranding(b) {
+  const cur = getBranding();
+  updateBrandingStmt.run(
+    b.labName    != null ? b.labName    : cur.labName,
+    b.accentColor!= null ? b.accentColor: cur.accentColor,
+    b.logo       !== undefined ? b.logo : cur.logo,
+    b.tagline    != null ? b.tagline    : cur.tagline,
+  );
+  return getBranding();
 }
 
 // ---- Mutations -------------------------------------------------------
@@ -373,4 +403,5 @@ module.exports = {
   createLocation, deleteLocation,
   createAssetType, deleteAssetType,
   createEngine,
+  getBranding, saveBranding,
 };

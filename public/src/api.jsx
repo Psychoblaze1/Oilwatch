@@ -73,6 +73,19 @@ const api = {
   async parseFlashPoint(csv) { return parsePost("/api/parse/flash-point", csv); },
   async parseAdditives(csv)  { return parsePost("/api/parse/additives", csv); },
 
+  // --- Branding ----------------------------------------------------
+  async getBranding() {
+    const r = await fetch("/api/branding");
+    return r.json();
+  },
+  async saveBranding(branding) {
+    const r = await fetch("/api/branding", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify(branding),
+    });
+    return r.json();
+  },
+
   // --- Alarms ------------------------------------------------------
   async ackAlarm(id, acknowledged = true) {
     await fetch(`/api/alarms/${encodeURIComponent(id)}`, {

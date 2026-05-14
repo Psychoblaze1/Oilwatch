@@ -88,6 +88,18 @@ app.post("/api/parse/ir-vision",   parseHandler(parsers.parseIRVisionCSV));
 app.post("/api/parse/flash-point", parseHandler(parsers.parseFlashPointCSV));
 app.post("/api/parse/additives",   parseHandler(parsers.parseAdditivesCSV));
 
+// ---- Lab branding ---------------------------------------------------
+// Single global branding record drives the report header (lab name,
+// accent color, logo, tagline). Stored as a single-row table in SQLite.
+app.get("/api/branding", (_req, res) => {
+  try { res.json(dbApi.getBranding()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/branding", (req, res) => {
+  try { res.json(dbApi.saveBranding(req.body || {})); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ---- Samples ---------------------------------------------------------
 app.post("/api/samples", (req, res) => {
   const s = req.body || {};
