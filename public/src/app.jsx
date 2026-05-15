@@ -18,7 +18,9 @@ function App() {
   const [, force]             = React.useReducer(x => x + 1, 0);  // re-render after mutations
   const [route, setRouteState] = React.useState("dashboard");
   const [siteFilter, setSiteFilter] = React.useState("all");
-  const [role, setRole]       = React.useState("ANALYST");
+  // Role defaults to whatever the seeded user has; the role-switcher
+  // in the sidebar still lets you act as another role for testing.
+  const [role, setRole]       = React.useState(() => (window.CURRENT_USER && window.CURRENT_USER.role) || "ANALYST");
   const [aiOpen, setAIOpen]   = React.useState(false);
   const [focused, setFocused] = React.useState(null);
 
@@ -26,8 +28,14 @@ function App() {
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
-      try { await window.bootstrap(); if (!cancelled) setReady(true); }
-      catch (e) { if (!cancelled) setBootErr(e.message || String(e)); }
+      try {
+        await window.bootstrap();
+        if (cancelled) return;
+        // Adopt the seeded user's role on first load (the picker can
+        // still override it for testing).
+        if (window.CURRENT_USER && window.CURRENT_USER.role) setRole(window.CURRENT_USER.role);
+        setReady(true);
+      } catch (e) { if (!cancelled) setBootErr(e.message || String(e)); }
     })();
     return () => { cancelled = true; };
   }, []);

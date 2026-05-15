@@ -34,7 +34,7 @@ function ScreenLogSample({ refresh, setRoute, focus }) {
   const [typeId,    setTypeId]    = React.useState(window.SAMPLE_TYPES[0].id);
   const [drawnAt,   setDrawnAt]   = React.useState(today);
   const [priority,  setPriority]  = React.useState("STD");
-  const [analyst,   setAnalyst]   = React.useState("D. Vaughn");
+  const [analyst,   setAnalyst]   = React.useState((window.CURRENT_USER && window.CURRENT_USER.name) || "Operator");
   const [component, setComponent] = React.useState("");
   const [noteText,  setNoteText]  = React.useState("");
 

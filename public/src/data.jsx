@@ -297,6 +297,7 @@ async function bootstrap() {
   window.SAMPLES     = (b.samples || []).map(s => ({ ...s }));
   window.ALARMS      = (b.alarms || []).map(a => ({ ...a }));
   window.BRANDING    = b.branding || { labName: "Lab88", accentColor: "#c2410c", logo: null, tagline: null };
+  window.CURRENT_USER = b.currentUser || { id: 1, name: "Operator", email: null, role: "ANALYST" };
   _limits = b.limits || [];
   _rules  = b.rules  || [];
   hydrateDates();

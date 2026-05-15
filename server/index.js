@@ -16,7 +16,7 @@ const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 
 if (!dbApi.isSeeded()) {
-  console.log("Empty DB — seeding piston aviation fleet…");
+  console.log("Empty DB — seeding rule library (fleet stays empty)…");
   seed();
   console.log("Seeded.");
 }

@@ -84,6 +84,15 @@ db.exec(`
     scope_json TEXT, conditions_json TEXT, action TEXT,
     created_at TEXT, last_triggered TEXT
   );
+  -- Operators of the lab. There is no real auth in v1; the first row
+  -- is loaded as the active user. Adding a real auth layer later is a
+  -- one-place change in /api/bootstrap.
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    name  TEXT NOT NULL,
+    email TEXT,
+    role  TEXT NOT NULL CHECK (role IN ('TECH','ANALYST','MANAGER','ADMIN'))
+  );
   -- Single-row table that stores lab-wide report branding: lab name,
   -- accent color, and a small logo (PNG/JPEG data URL).
   CREATE TABLE IF NOT EXISTS branding (
@@ -105,6 +114,13 @@ db.prepare(`
   UPDATE branding SET lab_name = 'Lab88',
                       tagline = 'Lab88 - advisory report; not a substitute for proper engine maintenance.'
   WHERE id = 1 AND lab_name = 'Oilwatch'
+`).run();
+
+// Seed the single admin user. INSERT OR IGNORE is keyed on the primary
+// key so customising name/email/role later doesn't get clobbered.
+db.prepare(`
+  INSERT OR IGNORE INTO users (id, name, email, role)
+  VALUES (1, 'Brandon Cooley', 'Brandon@atomicoil.co.za', 'ADMIN')
 `).run();
 
 // Live-migrate older DBs that pre-date later columns. SQLite skips
@@ -129,8 +145,12 @@ db.prepare(`
   if (!engineCols.includes("asset_type_id")) db.exec("ALTER TABLE engines ADD COLUMN asset_type_id TEXT");
 })();
 
+// Returns true when one-time seeds (currently just the rule library)
+// have been inserted. Engines / sites / samples are intentionally
+// never seeded — the user registers their own fleet via Manage and
+// Log Sample.
 function isSeeded() {
-  return db.prepare("SELECT COUNT(*) AS n FROM engines").get().n > 0;
+  return db.prepare("SELECT COUNT(*) AS n FROM rules").get().n > 0;
 }
 
 function getBootstrap() {
@@ -217,7 +237,14 @@ function getBootstrap() {
     action: r.action, createdAt: r.createdAt, lastTriggered: r.lastTriggered,
   }));
   const branding = getBranding();
-  return { sites, locations, assetTypes, engines, samples, alarms, limits, rules, branding };
+  const currentUser = getCurrentUser();
+  return { sites, locations, assetTypes, engines, samples, alarms, limits, rules, branding, currentUser };
+}
+
+// ---- Users --------------------------------------------------------
+function getCurrentUser() {
+  return db.prepare("SELECT id, name, email, role FROM users ORDER BY id LIMIT 1").get()
+    || { id: 1, name: "Operator", email: null, role: "ANALYST" };
 }
 
 // ---- Branding -----------------------------------------------------

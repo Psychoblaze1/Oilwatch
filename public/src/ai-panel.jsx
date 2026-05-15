@@ -3,15 +3,20 @@
 // ============================================================
 function AIPanel({ onClose, focus, context }) {
   // Seed initial chat from live fleet so refs stay valid as data evolves.
-  const sites = window.SITES.map(s => s.name.replace(/(Flight Academy|FBO|Charter|Aero Service|Flying Club|Bush Operators)/, "").trim()).filter(Boolean).slice(0, 4).join(", ");
+  const sites = window.SITES.map(s => s.name).filter(Boolean).slice(0, 4).join(", ");
   const worst = window.ASSETS.slice().sort((a, b) => a.health - b.health)[0];
+  const firstName = ((window.CURRENT_USER && window.CURRENT_USER.name) || "there").split(/\s+/)[0];
+  const grounded = window.SAMPLES.length === 0
+    ? `No samples on file yet — ${(window.SITES.length || 0)} site${window.SITES.length === 1 ? "" : "s"} registered.`
+    : `Grounded on ${sites || "the lab"} · ${window.SAMPLES.length} samples · ${window.ASSETS.length} engines.`;
+  const greeting = window.SAMPLES.length === 0
+    ? `Hi ${firstName}. The lab is set up but nothing has been logged yet. Once you submit a sample I can help you triage results, draft owner notes, and explain the limits.`
+    : worst
+      ? `Hi ${firstName}. Overnight pass surfaced ${window.ASSETS.filter(a => a.health < 50).length} engines trending — want a recap, or jump straight into ${worst.name.split(" · ")[0]} (${worst.tag}, ${worst.classLabel})?`
+      : `Hi ${firstName}. Fleet looks clean across the board overnight — anything you want me to dig into?`;
   const [messages, setMessages] = React.useState([
-    { role: "system", text: `Grounded on ${sites}, +2 more · ${window.SAMPLES.length} samples · ${window.ASSETS.length} engines.` },
-    { role: "ai",
-      text: worst
-        ? `Morning Devon. Overnight pass surfaced ${window.ASSETS.filter(a => a.health < 50).length} engines trending — want a recap, or jump straight into ${worst.name.split(" · ")[0]} (${worst.tag}, ${worst.classLabel})?`
-        : "Morning Devon. Fleet looks clean across the board overnight — anything you want me to dig into?",
-      time: "06:14" },
+    { role: "system", text: grounded },
+    { role: "ai", text: greeting, time: window.fmtTime(new Date()) },
   ]);
   const [input, setInput] = React.useState("");
   const [pending, setPending] = React.useState(false);

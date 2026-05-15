@@ -2,6 +2,11 @@
 // App shell — sidebar, topbar, status code chip
 // ============================================================
 
+function userInitials(u) {
+  if (!u || !u.name) return "··";
+  return u.name.trim().split(/\s+/).slice(0, 2).map(p => p[0]).join("").toUpperCase();
+}
+
 const Chip = ({ code, children, size = "sm" }) => {
   const c = window.COND[code] || window.COND[1];
   return (
@@ -79,10 +84,13 @@ function RoleSwitcher({ role, setRole }) {
   return (
     <div className="role-wrap">
       <button className="role-btn" onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}>
-        <div className="role-avatar mono">DV</div>
+        <div className="role-avatar mono">{userInitials(window.CURRENT_USER)}</div>
         <div className="role-meta">
-          <div className="role-name">Devon Vaughn</div>
-          <div className="role-role mono">{current.label.toUpperCase()} · PX-02</div>
+          <div className="role-name">{(window.CURRENT_USER && window.CURRENT_USER.name) || "Operator"}</div>
+          <div className="role-role mono">
+            {current.label.toUpperCase()}
+            {window.CURRENT_USER && window.CURRENT_USER.email ? " · " + window.CURRENT_USER.email : ""}
+          </div>
         </div>
         <Icon name="chevron" size={14} style={{ marginLeft: "auto", opacity: 0.6 }} />
       </button>
