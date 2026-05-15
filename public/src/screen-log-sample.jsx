@@ -341,22 +341,13 @@ function ScreenLogSample({ refresh, setRoute, focus }) {
             {manualCodes.map(code => {
               const p = window.getParam(code);
               if (!p) return null;
-              const isText = p.dir === "info" && p.code === "ISO4406";
               return (
-                <div key={code} className="ls-param">
-                  <div className="ls-param-head">
-                    <span className="mono t-id">{code}</span>
-                    <span className="ls-param-name">{p.name}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <input className="ls-input mono" type={isText ? "text" : "number"} step="any"
-                           value={readings[code]?.value ?? ""}
-                           onChange={e => e.target.value === "" ? clearManual(code) : setManual(code, e.target.value)}
-                           placeholder={limitPlaceholder(p)} />
-                    <span className="mono t-muted" style={{ fontSize: 11 }}>{p.unit}</span>
-                  </div>
-                  <div className="mono ls-param-lim">{limitDescription(p)}</div>
-                </div>
+                <ManualReadingInput
+                  key={code}
+                  param={p}
+                  onCommit={(v) => setManual(code, v)}
+                  onClear={() => clearManual(code)}
+                />
               );
             })}
           </div>
@@ -472,6 +463,54 @@ function PhotoSlot({ label, dataUrl, onPick }) {
           <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => onChange(e.target.files?.[0])}/>
         </label>
       )}
+    </div>
+  );
+}
+
+// Manual reading input — holds a local string draft and only commits
+// to the parent on Enter or blur so the value doesn't ricochet into
+// the Captured Readings table on the first keystroke.
+function ManualReadingInput({ param, onCommit, onClear }) {
+  const isText = param.dir === "info" && param.code === "ISO4406";
+  const [draft, setDraft] = React.useState("");
+
+  const commit = () => {
+    const t = draft.trim();
+    if (t === "") { onClear(); return; }
+    if (!isText) {
+      const n = Number(t);
+      if (!isFinite(n)) return;          // ignore garbage; keep draft visible
+      onCommit(n);
+    } else {
+      onCommit(t);
+    }
+  };
+
+  const onKey = (e) => {
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    else if (e.key === "Escape") { setDraft(""); }
+  };
+
+  return (
+    <div className="ls-param">
+      <div className="ls-param-head">
+        <span className="mono t-id">{param.code}</span>
+        <span className="ls-param-name">{param.name}</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <input className="ls-input mono"
+               type={isText ? "text" : "number"} step="any"
+               value={draft}
+               onChange={e => setDraft(e.target.value)}
+               onKeyDown={onKey}
+               onBlur={commit}
+               placeholder={limitPlaceholder(param)} />
+        <span className="mono t-muted" style={{ fontSize: 11 }}>{param.unit}</span>
+      </div>
+      <div className="mono ls-param-lim">
+        {limitDescription(param)}
+        <span style={{ opacity: 0.6 }}> · press <b>Enter</b> to save</span>
+      </div>
     </div>
   );
 }
