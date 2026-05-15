@@ -121,17 +121,34 @@ function ScreenLogSample({ refresh, setRoute, focus }) {
   };
 
   // ---- Submit ----
+  // Builds a human-readable list of unmet prerequisites. Used both as
+  // an inline hint next to the Submit button (so the user can see at
+  // a glance what's blocking submission) and inside onSubmit as a
+  // last-ditch error if the click somehow goes through with an
+  // incomplete form.
+  const missing = (() => {
+    const m = [];
+    if (!siteId) m.push("a Site");
+    if (newEngineMode) {
+      if (!locationId)            m.push("a Location");
+      if (!assetTypeId)           m.push("an Asset Type");
+      if (!newEngineName.trim())  m.push("a name for the new equipment");
+    } else if (!engineId) {
+      m.push("a piece of equipment (or pick \"+ Register new equipment\")");
+    }
+    return m;
+  })();
+
   const onSubmit = async () => {
-    if (!siteId)   { setError("Pick a site first.");                     return; }
-    if (!engine && !newEngineMode) { setError("Pick equipment or register new."); return; }
+    if (missing.length) {
+      setError("Can't submit yet — still need " + missing.join(", ") + ".");
+      return;
+    }
     setError(null); setSubmitting(true);
     try {
       // Inline "register new equipment" path.
       let useEngineId = engineId;
       if (newEngineMode) {
-        if (!newEngineName.trim() || !assetTypeId || !locationId) {
-          throw new Error("Need location, asset type, and equipment name to register new.");
-        }
         const created = await window.api.createEngine({
           siteId, locationId, assetTypeId,
           name: newEngineName.trim(), tag: newEngineTag.trim(),
@@ -199,8 +216,6 @@ function ScreenLogSample({ refresh, setRoute, focus }) {
     );
   }
 
-  const canSubmit = siteId && (engine || (newEngineMode && newEngineName.trim() && locationId && assetTypeId));
-
   return (
     <div className="page">
       <div className="page-header">
@@ -209,8 +224,17 @@ function ScreenLogSample({ refresh, setRoute, focus }) {
           <div className="page-sub">Pick the equipment, upload instrument files (parsers auto-fill readings), then submit.</div>
         </div>
         <div className="page-actions">
+          {missing.length > 0 && (
+            <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)", marginRight: 4, maxWidth: 360, textAlign: "right", lineHeight: 1.3 }}>
+              Need {missing.join(", ")}.
+            </span>
+          )}
           <button className="btn btn-ghost" onClick={() => setRoute && setRoute("samples")}>Cancel</button>
-          <button className="btn btn-primary" disabled={!canSubmit || submitting} onClick={onSubmit}>
+          {/* Submit is always clickable so the user gets a clear error
+              message instead of a silently-dead button. onSubmit
+              validates prerequisites and surfaces them in the error
+              card below. */}
+          <button className="btn btn-primary" disabled={submitting} onClick={onSubmit}>
             <Icon name="check" size={14}/> {submitting ? "Submitting…" : "Submit"}
           </button>
         </div>

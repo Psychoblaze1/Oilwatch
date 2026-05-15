@@ -340,6 +340,7 @@ const ShellStyles = () => (
     .btn:hover { background: var(--bg-sunken); }
     .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
     .btn-primary:hover { background: color-mix(in oklab, var(--accent), black 10%); }
+    .btn:disabled, .btn[disabled] { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
     .btn-ghost { background: transparent; border-color: transparent; }
     .btn-ghost:hover { background: var(--bg-sunken); }
     .btn-sm { padding: 4px 9px; font-size: 11.5px; }
