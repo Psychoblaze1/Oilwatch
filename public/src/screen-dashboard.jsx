@@ -26,7 +26,7 @@ function ScreenDashboard({ siteFilter, setRoute, focus, openAI }) {
           <div className="page-sub">{sites.length} {sites.length === 1 ? "operator" : "operators"} · {total} monitored engines · 28-day window</div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost" onClick={() => window.exportPDF("oilwatch-fleet-overview.pdf")}><Icon name="download" size={14}/> Export PDF</button>
+          <button className="btn btn-ghost" onClick={() => window.exportPDF("lab88-fleet-overview.pdf")}><Icon name="download" size={14}/> Export PDF</button>
           <button className="btn btn-ghost"><Icon name="filter" size={14}/> Filters</button>
           <button className="btn btn-primary" onClick={openAI}><Icon name="ai" size={14}/> Ask AI</button>
         </div>

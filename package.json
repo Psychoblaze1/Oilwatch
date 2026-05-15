@@ -1,8 +1,8 @@
 {
-  "name": "oilwatch",
+  "name": "lab88",
   "version": "0.1.0",
   "private": true,
-  "description": "Oilwatch — Lab88 VU dashboard. Static prototype + Anthropic API proxy.",
+  "description": "Lab88 — oil-analysis dashboard. Static prototype + Anthropic API proxy.",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",

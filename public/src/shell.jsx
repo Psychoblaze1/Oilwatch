@@ -39,7 +39,7 @@ function Sidebar({ route, setRoute, role, setRole, openAI }) {
           </svg>
         </div>
         <div className="brand-text">
-          <div className="brand-name">Oilwatch</div>
+          <div className="brand-name">Lab88</div>
           <div className="brand-sub mono">Lab88 VU · v4.2</div>
         </div>
       </div>
@@ -131,7 +131,7 @@ function Topbar({ site, setSite, route, openAI, onSearch, dark, onToggleTheme })
     <header className="top">
       <div className="top-left">
         <div className="crumbs mono">
-          <span className="crumb-pre">OILWATCH</span>
+          <span className="crumb-pre">LAB88</span>
           <span className="crumb-sep">/</span>
           <span className="crumb-cur">{(titles[route] || route).toUpperCase()}</span>
         </div>

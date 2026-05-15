@@ -1,4 +1,4 @@
-// SQLite-backed persistence for Oilwatch.
+// SQLite-backed persistence for Lab88.
 // One file (oilwatch.db) lives next to the server. On first start
 // (or when the file is empty) we seed it from the same generator that
 // originally lived in public/src/data.jsx so the demo never starts
@@ -95,7 +95,16 @@ db.exec(`
 // to update.
 db.prepare(`
   INSERT OR IGNORE INTO branding (id, lab_name, accent_color, logo, tagline)
-  VALUES (1, 'Oilwatch', '#c2410c', NULL, 'Lab88 VU - advisory report; not a substitute for proper engine maintenance.')
+  VALUES (1, 'Lab88', '#c2410c', NULL, 'Lab88 - advisory report; not a substitute for proper engine maintenance.')
+`).run();
+// One-shot rebrand migration: bump the lab name from the legacy
+// "Oilwatch" default to "Lab88" so existing installs that never
+// customised branding pick up the new name. Customer-set values like
+// "Atomic Oil Lab" are preserved (no row matches both predicates).
+db.prepare(`
+  UPDATE branding SET lab_name = 'Lab88',
+                      tagline = 'Lab88 - advisory report; not a substitute for proper engine maintenance.'
+  WHERE id = 1 AND lab_name = 'Oilwatch'
 `).run();
 
 // Live-migrate older DBs that pre-date later columns. SQLite skips
@@ -214,7 +223,7 @@ function getBootstrap() {
 // ---- Branding -----------------------------------------------------
 function getBranding() {
   const r = db.prepare("SELECT lab_name AS labName, accent_color AS accentColor, logo, tagline FROM branding WHERE id = 1").get();
-  return r || { labName: "Oilwatch", accentColor: "#c2410c", logo: null, tagline: null };
+  return r || { labName: "Lab88", accentColor: "#c2410c", logo: null, tagline: null };
 }
 const updateBrandingStmt = db.prepare("UPDATE branding SET lab_name = ?, accent_color = ?, logo = ?, tagline = ? WHERE id = 1");
 function saveBranding(b) {

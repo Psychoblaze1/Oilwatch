@@ -213,7 +213,7 @@ async function exportPDF(filename, target) {
       pdf.addImage(canvas.toDataURL("image/png"), "PNG", M, cursorY, drawW, drawH);
       cursorY += drawH + 12;
     }
-    pdf.save(filename || "oilwatch-report.pdf");
+    pdf.save(filename || "lab88-report.pdf");
   } finally {
     if (wasDark) document.documentElement.setAttribute("data-theme", "dark");
   }
@@ -233,7 +233,7 @@ function exportCSV(rows, filename) {
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = filename || "oilwatch-export.csv";
+  a.href = url; a.download = filename || "lab88-export.csv";
   document.body.appendChild(a); a.click();
   document.body.removeChild(a); URL.revokeObjectURL(url);
 }

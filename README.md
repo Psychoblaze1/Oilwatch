@@ -1,8 +1,9 @@
-# Oilwatch — Lab88 VU Dashboard
+# Lab88 — Oil Analysis Dashboard
 
-Multi-screen LIMS prototype for industrial oil analysis. The UI is the
-output of a [Claude Design](https://claude.ai/design) handoff; the server
-is a thin Node proxy that streams Claude Sonnet responses to the in-app
+Multi-screen LIMS for piston-aircraft oil analysis and SANS 342:2016
+diesel-fuel testing. The UI started as a [Claude Design](https://claude.ai/design)
+handoff; the server is a thin Node proxy that streams Claude Sonnet
+responses to the in-app
 AI panel and serves the static prototype.
 
 ## Stack
@@ -25,19 +26,19 @@ npm start              # → http://localhost:3000
 ## Deploy to AWS (EC2)
 
 1. SCP the repo to the instance, `npm ci --omit=dev`.
-2. Create `/home/ec2-user/oilwatch/.env` containing
+2. Create `/home/ec2-user/lab88/.env` containing
    `ANTHROPIC_API_KEY=sk-ant-...` and `PORT=3000`.
 3. Run as a systemd service (example unit):
 
    ```ini
    [Unit]
-   Description=Oilwatch
+   Description=Lab88
    After=network.target
 
    [Service]
-   WorkingDirectory=/home/ec2-user/oilwatch
+   WorkingDirectory=/home/ec2-user/lab88
    ExecStart=/usr/bin/node server/index.js
-   EnvironmentFile=/home/ec2-user/oilwatch/.env
+   EnvironmentFile=/home/ec2-user/lab88/.env
    Restart=on-failure
    User=ec2-user
 
@@ -72,7 +73,7 @@ Every Claude Design handoff is shaped the same way:
 
 ```
 project/
-├── Oilwatch.html
+├── Lab88.html
 ├── tweaks-panel.jsx
 └── src/*.jsx
 ```
@@ -82,7 +83,7 @@ To update the app:
 1. Extract the new tarball next to this repo.
 2. `rm -rf public/* && cp -r path/to/new-bundle/project/* public/`
 3. Reapply the small edits this repo adds on top of the raw design:
-   - jsPDF + html2canvas script tags in `Oilwatch.html`
+   - jsPDF + html2canvas script tags in `Lab88.html`
    - Topbar theme-toggle button in `shell.jsx`
    - Persisted theme + PDF/CSV helpers in `app.jsx`
    - Real fetch in `ai-panel.jsx`
@@ -106,5 +107,5 @@ yet — the structure is ready for them:
   multipart handler).
 
 To add a screen: create `public/src/screen-<name>.jsx`, add a
-`<script>` line in `public/Oilwatch.html`, add a nav entry in
+`<script>` line in `public/Lab88.html`, add a nav entry in
 `public/src/shell.jsx`, and a route case in `public/src/app.jsx`.

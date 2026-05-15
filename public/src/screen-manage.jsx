@@ -11,7 +11,7 @@ function ScreenManage({ role, refresh }) {
   const canEdit = role === "MANAGER" || role === "ADMIN";
   const [siteId, setSiteId] = React.useState(window.SITES[0]?.id || "");
   const [, force] = React.useReducer(x => x + 1, 0);
-  const [branding, setBranding] = React.useState(() => window.BRANDING || { labName: "Oilwatch", accentColor: "#c2410c", logo: null, tagline: "" });
+  const [branding, setBranding] = React.useState(() => window.BRANDING || { labName: "Lab88", accentColor: "#c2410c", logo: null, tagline: "" });
   React.useEffect(() => { if (!siteId && window.SITES[0]) setSiteId(window.SITES[0].id); }, [window.SITES.length]);
   const site = window.SITES.find(s => s.id === siteId);
 

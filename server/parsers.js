@@ -3,7 +3,7 @@
 //
 // Each parser takes a CSV/TSV-like text blob and returns a uniform
 // shape: { readings: [{ code, value }, ...] }. Codes are the same
-// param-vocabulary the rest of Oilwatch uses (Dist_T10, FlashPt,
+// param-vocabulary the rest of Lab88 uses (Dist_T10, FlashPt,
 // El_Fe, etc.) so the parsed readings drop straight into a sample.
 //
 // Parsing is intentionally forgiving — unknown columns / extra rows

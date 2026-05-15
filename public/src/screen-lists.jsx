@@ -32,7 +32,7 @@ function ScreenSamples({ siteFilter, focus, setRoute }) {
               score: s.score, cond: s.code, flags: s.flags.join("|"),
               analyst: s.analyst, status: s.status, barcode: s.barcode,
             })),
-            `oilwatch-samples-${new Date().toISOString().slice(0,10)}.csv`
+            `lab88-samples-${new Date().toISOString().slice(0,10)}.csv`
           )}><Icon name="download" size={14}/> Export CSV</button>
           <button className="btn btn-primary" onClick={() => setRoute && setRoute("log-sample")}><Icon name="plus" size={14}/> Log sample</button>
         </div>
@@ -113,7 +113,7 @@ function ScreenAssets({ siteFilter, focus }) {
               last_sample: window.fmtDate(a.lastSample), next_due: window.fmtDate(a.nextDue),
               oil: `${a.oil.brand} ${a.oil.name}`, oem: a.oem,
             })),
-            `oilwatch-assets-${new Date().toISOString().slice(0,10)}.csv`
+            `lab88-assets-${new Date().toISOString().slice(0,10)}.csv`
           )}><Icon name="download" size={14}/> Export CSV</button>
         </div>
       </div>

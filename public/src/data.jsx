@@ -1,5 +1,5 @@
 // ============================================================
-// Oilwatch — client-side data layer
+// Lab88 — client-side data layer
 //
 // All dynamic data (sites, engines, samples, alarms, limits, rules)
 // is loaded from /api/bootstrap and cached on window. Static domain
@@ -296,7 +296,7 @@ async function bootstrap() {
   window.ASSETS      = (b.engines || []).map(e => ({ ...e }));
   window.SAMPLES     = (b.samples || []).map(s => ({ ...s }));
   window.ALARMS      = (b.alarms || []).map(a => ({ ...a }));
-  window.BRANDING    = b.branding || { labName: "Oilwatch", accentColor: "#c2410c", logo: null, tagline: null };
+  window.BRANDING    = b.branding || { labName: "Lab88", accentColor: "#c2410c", logo: null, tagline: null };
   _limits = b.limits || [];
   _rules  = b.rules  || [];
   hydrateDates();

@@ -1,4 +1,4 @@
-// Oilwatch server
+// Lab88 server
 //  - SQLite persistence (server/db.js); seed on first run
 //  - Static frontend served from public/
 //  - REST API for fleet data + mutations
@@ -28,7 +28,9 @@ app.use(express.json({ limit: "8mb" }));
 
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
 app.use(express.static(PUBLIC_DIR));
-app.get("/", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "Oilwatch.html")));
+app.get("/", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "Lab88.html")));
+// Backwards-compat redirect for the legacy /Oilwatch.html bookmark.
+app.get("/Oilwatch.html", (_req, res) => res.redirect(301, "/"));
 
 app.get("/api/health", (_req, res) => res.json({ ok: true, model: MODEL, hasKey: !!API_KEY }));
 
@@ -198,7 +200,7 @@ app.post("/api/analyze", async (req, res) => {
     return;
   }
   const system = [
-    "You are the Oilwatch AI assistant for a piston-aircraft oil-analysis lab (Lab88 VU).",
+    "You are the Lab88 AI assistant for a piston-aircraft oil-analysis and SANS 342 diesel-fuel testing lab.",
     "You help A&P mechanics, owner-operators, flight schools, and lab analysts reason about wear metals (Fe, Cr, Al, Cu, Ni), silicon, lead (always high from 100LL avgas — usually NOT alarming), viscosity at 100°C, water, and fuel dilution.",
     "Engine families: Lycoming 4/6-cyl, Continental 4/6-cyl, Rotax, radial. Watch especially for the Lycoming cam/lifter corrosion-driven wear signature (Fe + Cr running together on low-utilization engines).",
     "Be concise and direct. Use plain English unless the user asks for depth.",
@@ -237,5 +239,5 @@ app.post("/api/analyze", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Oilwatch → http://localhost:${PORT}  (model: ${MODEL}, key: ${API_KEY ? "set" : "MISSING"})`);
+  console.log(`Lab88 → http://localhost:${PORT}  (model: ${MODEL}, key: ${API_KEY ? "set" : "MISSING"})`);
 });

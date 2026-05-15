@@ -40,7 +40,7 @@
     return [parseInt(v.slice(0,2),16), parseInt(v.slice(2,4),16), parseInt(v.slice(4,6),16)];
   }
   function getBranding() {
-    return window.BRANDING || { labName: "Oilwatch", accentColor: "#c2410c", logo: null, tagline: null };
+    return window.BRANDING || { labName: "Lab88", accentColor: "#c2410c", logo: null, tagline: null };
   }
 
   function statusColor(s) {
@@ -90,7 +90,7 @@
   function header(doc, title, subId, subRight) {
     const accent = getAccent();
     const brand = getBranding();
-    const labName = (brand.labName || "Oilwatch").toUpperCase();
+    const labName = (brand.labName || "Lab88").toUpperCase();
     const logo = brand.logo;
 
     // Header band in the active brand accent.
@@ -127,7 +127,7 @@
   function footer(doc, sampleId, opts = {}) {
     const y = PAGE.H - 32;
     const brand = getBranding();
-    const labName = (brand.labName || "Oilwatch");
+    const labName = (brand.labName || "Lab88");
     const customTag = brand.tagline && brand.tagline.trim();
     const tag = opts.tag || customTag || `${labName} - advisory report; not a substitute for proper engine maintenance.`;
     const pageNum = opts.pageNum != null ? opts.pageNum : doc.internal.getNumberOfPages();
