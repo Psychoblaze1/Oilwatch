@@ -25,6 +25,7 @@ function App() {
     config: { serverUrl: "", apiKey: "", instruments: [] },
     queue: [], activity: [], upload: { serverHealth: "unknown", pending: 0 },
     instrumentStatus: {},
+    discovery: { inboxPath: null, serial: [], serialSupported: false, lastScanAt: 0 },
   });
   const refresh = useCallback(async () => setSnap(await window.listener.snapshot()), []);
 
@@ -44,6 +45,7 @@ function App() {
     e("div", { className: "layout" },
       e("div", { className: "col" },
         e(ServerCard, { snap, refresh }),
+        e(DiscoveredCard, { snap, refresh }),
         e(InstrumentsCard, { snap, refresh }),
         e(NewInstrumentCard, { refresh }),
       ),
@@ -153,6 +155,56 @@ function InstrumentRow({ ins, status, refresh }) {
     e("span", { className: "tag" }, (ins.sampleType || "diesel-cf1")),
     e("button", { className: "btn small", onClick: toggle }, running ? "Stop" : "Start"),
     e("button", { className: "btn small ghost", onClick: remove }, "Remove"),
+  );
+}
+
+function DiscoveredCard({ snap, refresh }) {
+  const d = snap.discovery || {};
+  const serial = d.serial || [];
+  const rescan = async () => { await window.listener.rescanDiscovery(); refresh(); };
+  const adopt = async (p) => {
+    await window.listener.adoptSerial(p.path, { name: p.manufacturer ? `${p.manufacturer} (${p.path})` : p.path });
+    refresh();
+  };
+  return e("div", { className: "card" },
+    e("div", { className: "card-head" },
+      e("span", { className: "card-title" }, "Auto-Discovery"),
+      e("span", { className: "card-sub" },
+        (d.lastScanAt ? "scanned " + fmtRel(d.lastScanAt) + " ago" : "not yet scanned") +
+        " · " + serial.length + " serial candidate" + (serial.length === 1 ? "" : "s"),
+      ),
+      e("button", { className: "btn small ghost", style: { marginLeft: 8 }, onClick: rescan }, "Rescan"),
+    ),
+    e("div", { className: "card-body" },
+      e("div", { className: "muted", style: { fontSize: 11.5, marginBottom: 10 } },
+        d.inboxPath
+          ? e("span", null, "Inbox watching ", e("span", { className: "mono" }, d.inboxPath),
+              " — drop any IR Vision / Flash Point / Additives CSV here and it auto-uploads.")
+          : "Inbox folder unavailable.",
+      ),
+      !d.serialSupported && e("div", { className: "muted", style: { fontSize: 11.5 } },
+        "Serial discovery disabled — install ", e("span", { className: "mono" }, "serialport"),
+        " in listener/ to enable USB-serial enumeration.",
+      ),
+      d.serialSupported && serial.length === 0 && e("div", { className: "empty", style: { padding: 12 } },
+        "No new serial instruments detected. Plug in a USB-serial cable and click Rescan.",
+      ),
+      d.serialSupported && serial.length > 0 && e("div", null,
+        serial.map(p =>
+          e("div", { key: p.path, className: "instrument-row", style: { borderBottom: "1px solid var(--line)" } },
+            e("span", { className: "dot unknown" }),
+            e("div", null,
+              e("div", { className: "instrument-name" }, p.path),
+              e("div", { className: "instrument-meta" },
+                [p.manufacturer, p.vendorId && p.productId ? p.vendorId + ":" + p.productId : null].filter(Boolean).join(" · ") || "unknown device",
+                p.signature && " · " + p.signature,
+              ),
+            ),
+            e("button", { className: "btn small primary", onClick: () => adopt(p) }, "Adopt"),
+          ),
+        ),
+      ),
+    ),
   );
 }
 

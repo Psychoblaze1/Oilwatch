@@ -48,6 +48,23 @@ A single window opens with three sections:
    here. Successful uploads disappear; failed ones retry on a
    2s → 4s → 8s → … (capped at 5 min) backoff schedule.
 
+## Auto-discovery
+
+On first launch the listener:
+
+- creates `~/Lab88/Incoming` and starts watching it as a file-drop
+  instrument named **Inbox (auto)** — drop any IR Vision / Flash Point /
+  Additives / Filter Patch file in there and it gets parsed and
+  uploaded with zero configuration;
+- polls the OS every 5 s for USB-serial ports and surfaces any
+  unadopted ones under **Auto-Discovery** with their manufacturer +
+  VID:PID. Click **Adopt** to register the port as a serial
+  instrument. Known signatures (FTDI, Silicon Labs CP210x, Spectro Inc,
+  Prolific) get a hint about the likely device.
+
+Serial discovery needs the optional `serialport` dep; without it the
+inbox + manual Add-Instrument forms still work.
+
 ## Transports
 
 ### File drop

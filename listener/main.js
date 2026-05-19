@@ -16,9 +16,10 @@ const config   = require("./lib/config");
 const queue    = require("./lib/queue");
 const uploader = require("./lib/uploader");
 
-const filedrop = require("./lib/adapters/filedrop");
-const serial   = require("./lib/adapters/serial");
-const tcp      = require("./lib/adapters/tcp");
+const filedrop  = require("./lib/adapters/filedrop");
+const serial    = require("./lib/adapters/serial");
+const tcp       = require("./lib/adapters/tcp");
+const discovery = require("./lib/discovery");
 
 const ADAPTERS = { filedrop, serial, tcp };
 
@@ -55,6 +56,7 @@ function currentState() {
     instrumentStatus: Object.fromEntries(
       [...running.entries()].map(([id, h]) => [id, { running: true, info: h.info ? h.info() : null, error: h.error || null }]),
     ),
+    discovery: discovery.snapshot(),
   };
 }
 
@@ -116,6 +118,14 @@ ipcMain.handle("instrument:start", (_evt, id) => {
 });
 ipcMain.handle("instrument:stop",  (_evt, id) => { stopInstrument(id); pushSnapshot(); });
 
+ipcMain.handle("discovery:rescan", async () => { await discovery.scanSerial(); pushSnapshot(); return discovery.snapshot(); });
+ipcMain.handle("discovery:adopt", (_evt, { portPath, extra }) => {
+  const ins = discovery.adoptSerial(portPath, extra || {});
+  pushActivity({ level: "info", instrumentId: ins.id, text: `adopted serial port ${portPath} as ${ins.name}` });
+  startInstrument(ins);
+  return ins;
+});
+
 ipcMain.handle("queue:remove", (_evt, id) => queue.remove(id));
 ipcMain.handle("queue:clear",  () => queue.clearAll());
 ipcMain.handle("queue:tick",   () => uploader.tick());
@@ -142,13 +152,20 @@ app.whenReady().then(() => {
     level: "warn", instrumentId: item.source, text: `upload failed (attempt ${item.attempts}): ${error}`,
   }));
 
-  // Auto-start every previously-saved instrument.
+  // Discovery: auto-creates ~/Lab88/Incoming and (if no filedrop is
+  // configured yet) registers it as an instrument so file-drop works
+  // out of the box. Then polls serial ports for adopt-able candidates.
+  discovery.start({ onActivity: pushActivity, onChange: pushSnapshot });
+
+  // Auto-start every previously-saved instrument (including the inbox
+  // discovery just registered).
   for (const ins of config.get().instruments) startInstrument(ins);
   uploader.start();
 });
 
 app.on("window-all-closed", () => {
   for (const id of [...running.keys()]) stopInstrument(id);
+  discovery.stop();
   uploader.stop();
   app.quit();
 });

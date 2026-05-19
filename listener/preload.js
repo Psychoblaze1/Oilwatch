@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("listener", {
   removeInstrument: (id) => ipcRenderer.invoke("instrument:remove", id),
   startInstrument: (id) => ipcRenderer.invoke("instrument:start", id),
   stopInstrument:  (id) => ipcRenderer.invoke("instrument:stop", id),
+  rescanDiscovery: () => ipcRenderer.invoke("discovery:rescan"),
+  adoptSerial: (portPath, extra) => ipcRenderer.invoke("discovery:adopt", { portPath, extra }),
   removeQueueItem: (id) => ipcRenderer.invoke("queue:remove", id),
   clearQueue:      () => ipcRenderer.invoke("queue:clear"),
   tickNow:         () => ipcRenderer.invoke("queue:tick"),
