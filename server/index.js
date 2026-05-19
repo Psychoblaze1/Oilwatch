@@ -105,12 +105,14 @@ app.put("/api/branding", (req, res) => {
 // ---- Samples ---------------------------------------------------------
 app.post("/api/samples", (req, res) => {
   const s = req.body || {};
-  if (!s.assetId) return res.status(400).json({ error: "assetId required" });
+  // assetId is optional — the instrument listener can drop a draft
+  // sample into the inbox before an analyst has linked it to an
+  // engine. UI-driven Log Sample submissions still pass one.
   const id = s.id || dbApi.nextSampleId();
   const payload = {
     id,
     barcode: s.barcode || ("AOA" + (240000 + Math.floor(Math.random() * 9999))),
-    assetId: s.assetId,
+    assetId: s.assetId || null,
     component: s.component || "Sump Drain",
     oil: s.oil || "—",
     receivedAt: s.receivedAt || new Date().toISOString(),
