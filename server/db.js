@@ -30,11 +30,21 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_locations_site ON locations(site_id);
   CREATE INDEX IF NOT EXISTS idx_asset_types_site ON asset_types(site_id);
+  -- User-defined asset classes (e.g. "Lycoming 4-cyl", "Caterpillar
+  -- 3508 Genset"). Each belongs to a top-level section so the Oil /
+  -- Diesel switcher knows where to surface it.
+  CREATE TABLE IF NOT EXISTS asset_classes (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    section TEXT NOT NULL DEFAULT 'oil' CHECK (section IN ('oil','diesel')),
+    is_builtin INTEGER NOT NULL DEFAULT 0
+  );
   CREATE TABLE IF NOT EXISTS engines (
     id TEXT PRIMARY KEY, tag TEXT, name TEXT,
     site TEXT REFERENCES sites(id),
     location_id TEXT REFERENCES locations(id),
     asset_type_id TEXT REFERENCES asset_types(id),
+    section TEXT NOT NULL DEFAULT 'oil' CHECK (section IN ('oil','diesel')),
     class TEXT, class_label TEXT, oem TEXT,
     oil_brand TEXT, oil_name TEXT, oil_iso TEXT,
     run_hours INTEGER, criticality TEXT,
@@ -143,7 +153,28 @@ db.prepare(`
   const engineCols = db.prepare("PRAGMA table_info(engines)").all().map(c => c.name);
   if (!engineCols.includes("location_id"))   db.exec("ALTER TABLE engines ADD COLUMN location_id TEXT");
   if (!engineCols.includes("asset_type_id")) db.exec("ALTER TABLE engines ADD COLUMN asset_type_id TEXT");
+  if (!engineCols.includes("section")) {
+    db.exec("ALTER TABLE engines ADD COLUMN section TEXT NOT NULL DEFAULT 'oil'");
+    // Best-effort: existing diesel-genset rows go to the diesel section.
+    db.exec("UPDATE engines SET section = 'diesel' WHERE class = 'genset'");
+  }
 })();
+
+// Seed the built-in asset classes once. Customer-added rows have
+// is_builtin = 0; built-ins are protected from deletion.
+const BUILTIN_CLASSES = [
+  { id: "lyco4",  label: "Lycoming 4-cyl",   section: "oil"    },
+  { id: "lyco6",  label: "Lycoming 6-cyl",   section: "oil"    },
+  { id: "conto4", label: "Continental 4",    section: "oil"    },
+  { id: "conto6", label: "Continental 6",    section: "oil"    },
+  { id: "rotax",  label: "Rotax",            section: "oil"    },
+  { id: "radial", label: "Radial",           section: "oil"    },
+  { id: "genset", label: "Diesel Genset",    section: "diesel" },
+];
+const insertBuiltinClass = db.prepare(
+  "INSERT OR IGNORE INTO asset_classes (id, label, section, is_builtin) VALUES (?, ?, ?, 1)"
+);
+for (const c of BUILTIN_CLASSES) insertBuiltinClass.run(c.id, c.label, c.section);
 
 // Returns true when one-time seeds (currently just the rule library)
 // have been inserted. Engines / sites / samples are intentionally
@@ -157,10 +188,14 @@ function getBootstrap() {
   const sites = db.prepare("SELECT id, code, name, region, assets_count AS assets, samples28d FROM sites").all();
   const locations = db.prepare("SELECT id, site_id AS siteId, name FROM locations").all();
   const assetTypes = db.prepare("SELECT id, site_id AS siteId, location_id AS locationId, name FROM asset_types").all();
+  const assetClasses = db.prepare(
+    "SELECT id, label, section, is_builtin AS isBuiltin FROM asset_classes ORDER BY is_builtin DESC, label"
+  ).all().map(r => ({ ...r, isBuiltin: !!r.isBuiltin }));
   const engines = db.prepare(`
     SELECT e.id, e.tag, e.name, e.site, s.name AS siteName,
            e.location_id AS locationId, l.name AS locationName,
            e.asset_type_id AS assetTypeId, at.name AS assetTypeName,
+           e.section,
            e.class, e.class_label AS classLabel, e.oem,
            e.oil_brand AS oil_brand, e.oil_name AS oil_name, e.oil_iso AS oil_iso,
            e.run_hours AS runHours, e.criticality, e.health, e.code,
@@ -174,6 +209,7 @@ function getBootstrap() {
     id: r.id, tag: r.tag, name: r.name, site: r.site, siteName: r.siteName,
     locationId: r.locationId, locationName: r.locationName,
     assetTypeId: r.assetTypeId, assetTypeName: r.assetTypeName,
+    section: r.section || "oil",
     class: r.class, classLabel: r.classLabel, oem: r.oem,
     oil: { brand: r.oil_brand, name: r.oil_name, iso: r.oil_iso },
     runHours: r.runHours, criticality: r.criticality, health: r.health, code: r.code,
@@ -238,7 +274,7 @@ function getBootstrap() {
   }));
   const branding = getBranding();
   const currentUser = getCurrentUser();
-  return { sites, locations, assetTypes, engines, samples, alarms, limits, rules, branding, currentUser };
+  return { sites, locations, assetTypes, assetClasses, engines, samples, alarms, limits, rules, branding, currentUser };
 }
 
 // ---- Users --------------------------------------------------------
@@ -319,6 +355,31 @@ function createLocation(siteId, name) {
 }
 function deleteLocation(id) { db.prepare("DELETE FROM locations WHERE id = ?").run(id); }
 
+// --- Asset Classes (user-defined) ----------------------------------
+const insertAcStmt = db.prepare(
+  "INSERT INTO asset_classes (id, label, section, is_builtin) VALUES (?, ?, ?, 0)"
+);
+function createAssetClass({ label, section }) {
+  if (!label) throw new Error("label required");
+  const s = section === "diesel" ? "diesel" : "oil";
+  // Slug from label, dedup against existing ids.
+  const base = String(label).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || "class";
+  let id = base, n = 1;
+  while (db.prepare("SELECT 1 FROM asset_classes WHERE id = ?").get(id)) {
+    id = base + "-" + (++n);
+  }
+  insertAcStmt.run(id, label, s);
+  return { id, label, section: s, isBuiltin: false };
+}
+function deleteAssetClass(id) {
+  // Built-in classes are protected (deleting one would orphan engines
+  // and surprise other installs).
+  const row = db.prepare("SELECT is_builtin FROM asset_classes WHERE id = ?").get(id);
+  if (!row) return;
+  if (row.is_builtin) throw new Error("built-in class can't be deleted");
+  db.prepare("DELETE FROM asset_classes WHERE id = ?").run(id);
+}
+
 const insertAtStmt = db.prepare("INSERT INTO asset_types (id, site_id, location_id, name) VALUES (?, ?, ?, ?)");
 function createAssetType(siteId, locationId, name) {
   const id = uid("at");
@@ -335,17 +396,28 @@ function createSite({ name, code, region }) {
 }
 
 const insertEngineStmt = db.prepare(`
-  INSERT INTO engines (id, tag, name, site, location_id, asset_type_id,
+  INSERT INTO engines (id, tag, name, site, location_id, asset_type_id, section,
                        class, class_label, oem, oil_brand, oil_name, oil_iso,
                        run_hours, criticality, health, code, dimensions_json,
                        last_sample, next_due, rul_days)
-  VALUES (@id, @tag, @name, @site, @location_id, @asset_type_id,
+  VALUES (@id, @tag, @name, @site, @location_id, @asset_type_id, @section,
           @class, @class_label, @oem, @oil_brand, @oil_name, @oil_iso,
           @run_hours, @criticality, @health, @code, @dimensions_json,
           @last_sample, @next_due, @rul_days)
 `);
 function createEngine(e) {
   const id = e.id || uid("A");
+  // If a class was given but no section, inherit the class's section.
+  let section = e.section;
+  let classLabel = e.classLabel || null;
+  if (e.classId) {
+    const cls = db.prepare("SELECT label, section FROM asset_classes WHERE id = ?").get(e.classId);
+    if (cls) {
+      if (!section) section = cls.section;
+      if (!classLabel) classLabel = cls.label;
+    }
+  }
+  if (!section) section = "oil";
   insertEngineStmt.run({
     id,
     tag: e.tag || "",
@@ -353,8 +425,9 @@ function createEngine(e) {
     site: e.siteId || null,
     location_id: e.locationId || null,
     asset_type_id: e.assetTypeId || null,
+    section,
     class: e.classId || null,
-    class_label: e.classLabel || null,
+    class_label: classLabel,
     oem: e.oem || null,
     oil_brand: e.oilBrand || null,
     oil_name:  e.oilName  || null,
@@ -438,6 +511,7 @@ module.exports = {
   createSite,
   createLocation, deleteLocation,
   createAssetType, deleteAssetType,
+  createAssetClass, deleteAssetClass,
   createEngine,
   getBranding, saveBranding,
 };

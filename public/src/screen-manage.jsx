@@ -58,22 +58,42 @@ function ScreenManage({ role, refresh }) {
     await refreshAll();
   };
 
-  // --- Register Equipment form
-  const [newEng, setNewEng] = React.useState({ name: "", tag: "", locationId: "", assetTypeId: "", oem: "", oilName: "" });
+  // --- Register Equipment form (now with asset class + section)
+  const [newEng, setNewEng] = React.useState({
+    name: "", tag: "", locationId: "", assetTypeId: "", classId: "",
+    section: "oil", oem: "", oilName: "",
+  });
   const onAddEngine = async () => {
     if (!canEdit || !siteId || !newEng.name.trim()) return;
     await window.api.createEngine({
       siteId,
       locationId: newEng.locationId || null,
       assetTypeId: newEng.assetTypeId || null,
+      classId: newEng.classId || null,
+      section: newEng.section,
       name: newEng.name.trim(),
       tag: newEng.tag.trim(),
       oem: newEng.oem.trim() || null,
       oilName: newEng.oilName.trim() || null,
       health: 95, code: 1, runHours: 0, criticality: "C", rulDays: 120,
     });
-    setNewEng({ name: "", tag: "", locationId: "", assetTypeId: "", oem: "", oilName: "" });
+    setNewEng({ name: "", tag: "", locationId: "", assetTypeId: "", classId: "", section: newEng.section, oem: "", oilName: "" });
     await refreshAll();
+  };
+
+  // --- Add Asset Class form
+  const [newClass, setNewClass] = React.useState({ label: "", section: "oil" });
+  const onAddClass = async () => {
+    if (!canEdit || !newClass.label.trim()) return;
+    await window.api.createAssetClass({ label: newClass.label.trim(), section: newClass.section });
+    setNewClass({ label: "", section: newClass.section });
+    await refreshAll();
+  };
+  const onDeleteClass = async (cls) => {
+    if (!canEdit || cls.isBuiltin) return;
+    if (!confirm(`Delete asset class "${cls.label}"? Engines tagged with it keep the label but lose the link.`)) return;
+    try { await window.api.deleteAssetClass(cls.id); await refreshAll(); }
+    catch (e) { alert(e.message); }
   };
 
   const locations = siteId ? window.getLocationsForSite(siteId) : [];
@@ -276,6 +296,57 @@ function ScreenManage({ role, refresh }) {
         </div>
         )}
 
+      {/* Asset Classes — global (not per site). Each belongs to a section. */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <span className="card-title">Asset Classes</span>
+          <span className="card-sub mono">{window.ASSET_CLASSES.length} TOTAL · BUILT-IN + CUSTOM · OIL / DIESEL SECTIONS</span>
+        </div>
+        <div className="card-body no-pad">
+          <table className="table">
+            <thead><tr><th>Label</th><th>Section</th><th>Type</th><th>ID</th><th></th></tr></thead>
+            <tbody>
+              {window.ASSET_CLASSES.map(c => (
+                <tr key={c.id}>
+                  <td>{c.label}</td>
+                  <td><Tag tone={c.section === "diesel" ? "accent" : "neutral"}>{c.section === "diesel" ? "Diesel" : "Oil"}</Tag></td>
+                  <td className="t-muted">{c.isBuiltin ? "Built-in" : "Custom"}</td>
+                  <td className="mono t-id">{c.id}</td>
+                  <td style={{ textAlign: "right" }}>
+                    {canEdit && !c.isBuiltin && (
+                      <button className="btn btn-sm btn-ghost" onClick={() => onDeleteClass(c)}>
+                        <Icon name="trash" size={12}/>
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {canEdit && (
+          <div className="card-body" style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+            <div style={{ flex: 1 }}>
+              <div className="mng-label">New class label</div>
+              <input className="mng-input" placeholder="Caterpillar 3508 / John Deere 6068 / Pratt R-1830"
+                     value={newClass.label} onChange={e => setNewClass({ ...newClass, label: e.target.value })}
+                     onKeyDown={e => e.key === "Enter" && onAddClass()} />
+            </div>
+            <div>
+              <div className="mng-label">Section</div>
+              <select className="mng-input" style={{ width: 140 }}
+                      value={newClass.section} onChange={e => setNewClass({ ...newClass, section: e.target.value })}>
+                <option value="oil">Oil</option>
+                <option value="diesel">Diesel</option>
+              </select>
+            </div>
+            <button className="btn btn-primary" onClick={onAddClass} disabled={!newClass.label.trim()}>
+              <Icon name="plus" size={12}/> Add class
+            </button>
+          </div>
+        )}
+      </div>
+
       {siteId && (
         <div className="card">
           <div className="card-head">
@@ -306,7 +377,7 @@ function ScreenManage({ role, refresh }) {
             )}
           </div>
           {canEdit && (
-            <div className="card-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
+            <div className="card-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
               <div><div className="mng-label">Name</div><input className="mng-input" placeholder="Generator G-101" value={newEng.name} onChange={e => setNewEng({ ...newEng, name: e.target.value })}/></div>
               <div><div className="mng-label">Serial #</div><input className="mng-input" placeholder="QSK60-G4-0123" value={newEng.tag} onChange={e => setNewEng({ ...newEng, tag: e.target.value })}/></div>
               <div>
@@ -321,6 +392,19 @@ function ScreenManage({ role, refresh }) {
                 <select className="mng-input" value={newEng.assetTypeId} onChange={e => setNewEng({ ...newEng, assetTypeId: e.target.value })}>
                   <option value="">—</option>
                   {assetTypes.map(at => <option key={at.id} value={at.id}>{at.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <div className="mng-label">Asset Class</div>
+                <select className="mng-input" value={newEng.classId} onChange={e => {
+                  const id = e.target.value;
+                  const cls = window.ASSET_CLASSES.find(c => c.id === id);
+                  setNewEng({ ...newEng, classId: id, section: cls ? cls.section : newEng.section });
+                }}>
+                  <option value="">— Custom —</option>
+                  {window.ASSET_CLASSES.map(c => (
+                    <option key={c.id} value={c.id}>{c.label} ({c.section === "diesel" ? "Diesel" : "Oil"})</option>
+                  ))}
                 </select>
               </div>
               <div><div className="mng-label">OEM</div><input className="mng-input" placeholder="Cummins" value={newEng.oem} onChange={e => setNewEng({ ...newEng, oem: e.target.value })}/></div>

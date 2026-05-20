@@ -1,11 +1,19 @@
 // ============================================================
 // Dashboard screen — fleet overview, heatmap, alarms, AI insights
 // ============================================================
-function ScreenDashboard({ siteFilter, setRoute, focus, openAI }) {
+function ScreenDashboard({ siteFilter, section, setRoute, focus, openAI }) {
+  const sec = section || "oil";
   const sites = siteFilter === "all" ? window.SITES : window.SITES.filter(s => s.id === siteFilter);
-  const assets = siteFilter === "all" ? window.ASSETS : window.ASSETS.filter(a => a.site === siteFilter);
-  const samples = siteFilter === "all" ? window.SAMPLES : window.SAMPLES.filter(s => assets.find(a => a.id === s.assetId));
-  const alarms = window.ALARMS.filter(al => assets.find(a => a.id === al.assetId));
+  let assets = siteFilter === "all" ? window.ASSETS : window.ASSETS.filter(a => a.site === siteFilter);
+  assets = assets.filter(a => window.getSectionForAsset(a) === sec);
+  const assetIds = new Set(assets.map(a => a.id));
+  // Show samples that belong to this section (by sample type) and whose
+  // engine is in scope of the current site filter.
+  const samples = window.SAMPLES.filter(s =>
+    window.getSectionForSample(s) === sec &&
+    (siteFilter === "all" || assetIds.has(s.assetId))
+  );
+  const alarms = window.ALARMS.filter(al => assetIds.has(al.assetId));
 
   const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
   for (const a of assets) counts[a.code]++;
@@ -74,7 +82,9 @@ function ScreenDashboard({ siteFilter, setRoute, focus, openAI }) {
             </div>
             <div style={{ fontSize: 14, color: "var(--ink)", lineHeight: 1.55, maxWidth: 880 }}>
               {worst ? (<>
-                <b>{worst.name}</b> ({worst.tag}, {worst.siteName}) is your highest-impact follow-up — iron and chromium are running together, consistent with the classic <b>{worst.classLabel.toLowerCase()}</b> cam/lifter wear pattern most often tied to low recent utilization. Estimated time-to-inspection threshold <b>{worst.rulDays} hours</b>. Suggested action: cut the oil filter at next change, borescope the cam, and resample at 10h instead of the usual interval.
+                <b>{worst.name}</b> ({worst.tag}, {worst.siteName}) is your highest-impact follow-up — {sec === "diesel"
+                  ? <>flash point and water content are trending toward their SANS 342 limits. Estimated time-to-inspection threshold <b>{worst.rulDays} days</b>. Suggested action: re-sample after the next tank turnover and document the bowser source on the report.</>
+                  : <>iron and chromium are running together, consistent with the classic <b>{(worst.classLabel || "engine").toLowerCase()}</b> cam/lifter wear pattern most often tied to low recent utilization. Estimated time-to-inspection threshold <b>{worst.rulDays} hours</b>. Suggested action: cut the oil filter at next change, borescope the cam, and resample at 10h instead of the usual interval.</>}
               </>) : (<>
                 Fleet is mostly clean — no engines below 50 score in the current scope. Hold cadence and revisit the daily briefing tomorrow.
               </>)}

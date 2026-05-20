@@ -13,8 +13,11 @@
 // raw file contents so a reviewer can re-process if needed.
 // ============================================================
 
-function ScreenLogSample({ refresh, setRoute, focus }) {
+function ScreenLogSample({ section, refresh, setRoute, focus }) {
+  const sec = section || "oil";
   const today = new Date().toISOString().slice(0, 10);
+  // Sample types available in this section (oil → aviation, diesel → SANS).
+  const sectionSampleTypes = window.getSampleTypesForSection(sec);
 
   // --- Hierarchy state ---
   const [siteId,      setSiteId]      = React.useState(window.SITES[0]?.id || "");
@@ -31,7 +34,13 @@ function ScreenLogSample({ refresh, setRoute, focus }) {
   React.useEffect(() => { setEngineId(""); }, [assetTypeId]);
 
   // --- Sample type + draw context ---
-  const [typeId,    setTypeId]    = React.useState(window.SAMPLE_TYPES[0].id);
+  const [typeId,    setTypeId]    = React.useState((sectionSampleTypes[0] || window.SAMPLE_TYPES[0]).id);
+  // If the user toggles section, snap to a sample type that belongs to it.
+  React.useEffect(() => {
+    if (!sectionSampleTypes.find(t => t.id === typeId)) {
+      setTypeId((sectionSampleTypes[0] || window.SAMPLE_TYPES[0]).id);
+    }
+  }, [sec]);
   const [drawnAt,   setDrawnAt]   = React.useState(today);
   const [priority,  setPriority]  = React.useState("STD");
   const [analyst,   setAnalyst]   = React.useState((window.CURRENT_USER && window.CURRENT_USER.name) || "Operator");
@@ -315,7 +324,7 @@ function ScreenLogSample({ refresh, setRoute, focus }) {
           <div>
             <div className="ls-label">Sample type</div>
             <select className="ls-input" value={typeId} onChange={e => setTypeId(e.target.value)}>
-              {window.SAMPLE_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+              {sectionSampleTypes.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
             <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)", marginTop: 4 }}>{sampleType.description}</div>
           </div>

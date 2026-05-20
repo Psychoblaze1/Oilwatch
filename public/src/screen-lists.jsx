@@ -3,15 +3,21 @@
 // (Compact secondary screens accessed from nav)
 // ============================================================
 
-function ScreenSamples({ siteFilter, focus, setRoute }) {
+function ScreenSamples({ siteFilter, section, focus, setRoute }) {
+  const sec = section || "oil";
   const [status, setStatus] = React.useState("ALL");
   const [q, setQ] = React.useState("");
-  const assets = siteFilter === "all" ? window.ASSETS : window.ASSETS.filter(a => a.site === siteFilter);
-  let list = window.SAMPLES.filter(s => assets.find(a => a.id === s.assetId));
+  const assets = (siteFilter === "all" ? window.ASSETS : window.ASSETS.filter(a => a.site === siteFilter))
+    .filter(a => window.getSectionForAsset(a) === sec);
+  const assetIds = new Set(assets.map(a => a.id));
+  let list = window.SAMPLES.filter(s =>
+    window.getSectionForSample(s) === sec &&
+    (siteFilter === "all" || assetIds.has(s.assetId))
+  );
   if (status !== "ALL") list = list.filter(s => s.status === status);
   if (q) {
     const ql = q.toLowerCase();
-    list = list.filter(s => s.id.toLowerCase().includes(ql) || s.assetName.toLowerCase().includes(ql) || s.assetTag.toLowerCase().includes(ql) || s.barcode.includes(q));
+    list = list.filter(s => s.id.toLowerCase().includes(ql) || (s.assetName || "").toLowerCase().includes(ql) || (s.assetTag || "").toLowerCase().includes(ql) || (s.barcode || "").includes(q));
   }
 
   const tabs = ["ALL","DRAFT","QC","APPROVED","PUBLISHED","REJECTED"];
@@ -61,8 +67,8 @@ function ScreenSamples({ siteFilter, focus, setRoute }) {
                 <tr key={s.id} onClick={() => focus(s.id, "sample")}>
                   <td className="mono t-id">{s.id}</td>
                   <td><SampleTypeTag sample={s} /></td>
-                  <td>{s.assetName} <span className="mono muted">· {s.assetTag}</span></td>
-                  <td className="t-muted">{s.siteName}</td>
+                  <td>{s.assetName || <span className="muted">— unlinked</span>} {s.assetTag && <span className="mono muted">· {s.assetTag}</span>}</td>
+                  <td className="t-muted">{s.siteName || "—"}</td>
                   <td>{s.component}</td>
                   <td className="mono t-muted">{window.fmtShortDate(s.receivedAt)}</td>
                   <td><Chip code={s.code}>{s.score}</Chip></td>
@@ -85,11 +91,14 @@ function SampleTypeTag({ sample }) {
   return <Tag tone={isDiesel ? "accent" : "neutral"}>{isDiesel ? "DIESEL" : "OIL"}</Tag>;
 }
 
-function ScreenAssets({ siteFilter, focus }) {
+function ScreenAssets({ siteFilter, section, focus }) {
+  const sec = section || "oil";
   const [cls, setCls] = React.useState("ALL");
   const [q, setQ] = React.useState("");
-  let list = siteFilter === "all" ? window.ASSETS : window.ASSETS.filter(a => a.site === siteFilter);
+  let list = (siteFilter === "all" ? window.ASSETS : window.ASSETS.filter(a => a.site === siteFilter))
+    .filter(a => window.getSectionForAsset(a) === sec);
   if (cls !== "ALL") list = list.filter(a => a.class === cls);
+  const sectionClasses = window.getAssetClassesForSection(sec);
   if (q) {
     const ql = q.toLowerCase();
     list = list.filter(a => a.name.toLowerCase().includes(ql) || a.tag.toLowerCase().includes(ql));
@@ -121,7 +130,7 @@ function ScreenAssets({ siteFilter, focus }) {
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14 }}>
         <div style={{ display: "flex", gap: 4 }}>
           <button className={`btn btn-sm ${cls === "ALL" ? "btn-primary" : "btn-ghost"}`} onClick={() => setCls("ALL")}>All</button>
-          {window.ASSET_CLASSES.map(c => (
+          {sectionClasses.map(c => (
             <button key={c.id} className={`btn btn-sm ${cls === c.id ? "btn-primary" : "btn-ghost"}`} onClick={() => setCls(c.id)}>{c.label}</button>
           ))}
         </div>
@@ -159,8 +168,10 @@ function ScreenAssets({ siteFilter, focus }) {
   );
 }
 
-function ScreenAlarms({ siteFilter, focus }) {
-  const assets = siteFilter === "all" ? window.ASSETS : window.ASSETS.filter(a => a.site === siteFilter);
+function ScreenAlarms({ siteFilter, section, focus }) {
+  const sec = section || "oil";
+  const assets = (siteFilter === "all" ? window.ASSETS : window.ASSETS.filter(a => a.site === siteFilter))
+    .filter(a => window.getSectionForAsset(a) === sec);
   const [, force] = React.useReducer(x => x + 1, 0);
   const alarms = window.ALARMS.filter(a => assets.find(x => x.id === a.assetId));
 

@@ -10,14 +10,25 @@
 
 // ---- Static reference data ------------------------------------------
 
-const ASSET_CLASSES = [
-  { id: "lyco4",  label: "Lycoming 4-cyl"   },
-  { id: "lyco6",  label: "Lycoming 6-cyl"   },
-  { id: "conto4", label: "Continental 4"    },
-  { id: "conto6", label: "Continental 6"    },
-  { id: "rotax",  label: "Rotax"            },
-  { id: "radial", label: "Radial"           },
-  { id: "genset", label: "Diesel Genset"    },
+// Top-level lab section. The user picks one in the topbar and the
+// dashboard / samples / assets / log-sample screens filter to that
+// section. Each asset class belongs to exactly one section.
+const SECTIONS = [
+  { id: "oil",    label: "Aviation Oil", short: "Oil"    },
+  { id: "diesel", label: "Diesel Fuel",  short: "Diesel" },
+];
+
+// Asset classes are loaded from the server (built-in + customer-added).
+// Built-in defaults are shown here for reference but the real list is
+// populated into `window.ASSET_CLASSES` from /api/bootstrap.
+const ASSET_CLASSES_FALLBACK = [
+  { id: "lyco4",  label: "Lycoming 4-cyl", section: "oil",    isBuiltin: true },
+  { id: "lyco6",  label: "Lycoming 6-cyl", section: "oil",    isBuiltin: true },
+  { id: "conto4", label: "Continental 4",  section: "oil",    isBuiltin: true },
+  { id: "conto6", label: "Continental 6",  section: "oil",    isBuiltin: true },
+  { id: "rotax",  label: "Rotax",          section: "oil",    isBuiltin: true },
+  { id: "radial", label: "Radial",         section: "oil",    isBuiltin: true },
+  { id: "genset", label: "Diesel Genset",  section: "diesel", isBuiltin: true },
 ];
 
 const ROLES = [
@@ -267,6 +278,7 @@ function fmtTime(d) {
 window.SITES = [];
 window.LOCATIONS = [];
 window.ASSET_TYPES = [];
+window.ASSET_CLASSES = ASSET_CLASSES_FALLBACK.slice();
 window.ASSETS = [];
 window.SAMPLES = [];
 window.ALARMS = [];
@@ -293,6 +305,9 @@ async function bootstrap() {
   window.SITES       = (b.sites || []).map(s => ({ ...s }));
   window.LOCATIONS   = (b.locations || []).map(l => ({ ...l }));
   window.ASSET_TYPES = (b.assetTypes || []).map(a => ({ ...a }));
+  window.ASSET_CLASSES = (b.assetClasses && b.assetClasses.length)
+    ? b.assetClasses.map(c => ({ ...c }))
+    : ASSET_CLASSES_FALLBACK.slice();
   window.ASSETS      = (b.engines || []).map(e => ({ ...e }));
   window.SAMPLES     = (b.samples || []).map(s => ({ ...s }));
   window.ALARMS      = (b.alarms || []).map(a => ({ ...a }));
@@ -303,6 +318,34 @@ async function bootstrap() {
   hydrateDates();
 }
 window.bootstrap = bootstrap;
+
+// --- Section helpers --------------------------------------------------
+// An asset's section comes from the engines.section column directly;
+// if missing, fall back to the asset class's section, else "oil".
+function getSectionForAsset(a) {
+  if (!a) return "oil";
+  if (a.section) return a.section;
+  const cls = window.ASSET_CLASSES.find(c => c.id === a.class);
+  return cls?.section || "oil";
+}
+// A sample's section is derived from its sample type's paramSet (diesel
+// or aviation). Falls back to the linked engine's section for legacy
+// rows that have no sample_type recorded.
+function getSectionForSample(s) {
+  if (!s) return "oil";
+  const t = getSampleType(s);
+  if (t.paramSet === "diesel") return "diesel";
+  if (t.paramSet === "aviation") return "oil";
+  const eng = window.ASSETS.find(a => a.id === s.assetId);
+  return getSectionForAsset(eng);
+}
+function getAssetClassesForSection(section) {
+  return window.ASSET_CLASSES.filter(c => c.section === section);
+}
+function getSampleTypesForSection(section) {
+  const ps = section === "diesel" ? "diesel" : "aviation";
+  return SAMPLE_TYPES.filter(t => t.paramSet === ps);
+}
 
 // --- Hierarchy helpers -----------------------------------------------
 function getLocationsForSite(siteId) {
@@ -509,7 +552,7 @@ function recentPublished(n = 6) {
 }
 
 Object.assign(window, {
-  ASSET_CLASSES, ROLES, COND, OILS, PARAM_DEFS, DIESEL_PARAMS, INSTRUMENTS, SAMPLE_TYPES,
+  SECTIONS, ROLES, COND, OILS, PARAM_DEFS, DIESEL_PARAMS, INSTRUMENTS, SAMPLE_TYPES,
   scoreToCode, fmtDate, fmtShortDate, fmtTime,
   resolveResults, makeTestResults, makeTrend, evalRule,
   getLimits, setLimit, resetLimits,
@@ -520,4 +563,6 @@ Object.assign(window, {
   getSampleType, isDieselSample,
   // Hierarchy helpers
   getLocationsForSite, getAssetTypesForSite, getEnginesForAssetType,
+  // Section helpers
+  getSectionForAsset, getSectionForSample, getAssetClassesForSection, getSampleTypesForSection,
 });

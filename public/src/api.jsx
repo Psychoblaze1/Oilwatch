@@ -60,6 +60,21 @@ const api = {
   async deleteAssetType(id) {
     await fetch(`/api/asset-types/${encodeURIComponent(id)}`, { method: "DELETE" });
   },
+  async createAssetClass(payload) {
+    const r = await fetch("/api/asset-classes", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error("createAssetClass failed: " + r.status);
+    return r.json();
+  },
+  async deleteAssetClass(id) {
+    const r = await fetch(`/api/asset-classes/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("deleteAssetClass failed: " + r.status));
+    }
+  },
   async createEngine(payload) {
     const r = await fetch("/api/engines", {
       method: "POST", headers: { "content-type": "application/json" },

@@ -3,6 +3,7 @@
 // ============================================================
 
 const THEME_KEY = "oilwatch.theme";
+const SECTION_KEY = "lab88.section";
 
 function App() {
   const initialDark = (() => {
@@ -18,6 +19,17 @@ function App() {
   const [, force]             = React.useReducer(x => x + 1, 0);  // re-render after mutations
   const [route, setRouteState] = React.useState("dashboard");
   const [siteFilter, setSiteFilter] = React.useState("all");
+  const [section, setSectionState] = React.useState(() => {
+    try {
+      const v = localStorage.getItem(SECTION_KEY);
+      if (v === "oil" || v === "diesel") return v;
+    } catch (_) {}
+    return "oil";
+  });
+  const setSection = (s) => {
+    setSectionState(s);
+    try { localStorage.setItem(SECTION_KEY, s); } catch (_) {}
+  };
   // Role defaults to whatever the seeded user has; the role-switcher
   // in the sidebar still lets you act as another role for testing.
   const [role, setRole]       = React.useState(() => (window.CURRENT_USER && window.CURRENT_USER.role) || "ANALYST");
@@ -102,17 +114,18 @@ function App() {
                  setRoute={setRoute} role={role} setRole={setRole} openAI={() => setAIOpen(true)} />
         <main className="main">
           <Topbar site={siteFilter} setSite={setSiteFilter} route={route} openAI={() => setAIOpen(true)}
-                  dark={tweaks.dark} onToggleTheme={toggleTheme} />
-          {route === "dashboard"  && <ScreenDashboard  siteFilter={siteFilter} setRoute={setRoute} focus={focus} openAI={() => setAIOpen(true)} />}
-          {route === "samples"    && <ScreenSamples    siteFilter={siteFilter} focus={focus} setRoute={setRoute} />}
-          {route === "lifecycle"  && <ScreenLifecycle  siteFilter={siteFilter} focus={focus} role={role} refresh={refresh} />}
-          {route === "assets"     && <ScreenAssets     siteFilter={siteFilter} focus={focus} />}
-          {route === "alarms"     && <ScreenAlarms     siteFilter={siteFilter} focus={focus} />}
+                  dark={tweaks.dark} onToggleTheme={toggleTheme}
+                  section={section} setSection={setSection} />
+          {route === "dashboard"  && <ScreenDashboard  siteFilter={siteFilter} section={section} setRoute={setRoute} focus={focus} openAI={() => setAIOpen(true)} />}
+          {route === "samples"    && <ScreenSamples    siteFilter={siteFilter} section={section} focus={focus} setRoute={setRoute} />}
+          {route === "lifecycle"  && <ScreenLifecycle  siteFilter={siteFilter} section={section} focus={focus} role={role} refresh={refresh} />}
+          {route === "assets"     && <ScreenAssets     siteFilter={siteFilter} section={section} focus={focus} />}
+          {route === "alarms"     && <ScreenAlarms     siteFilter={siteFilter} section={section} focus={focus} />}
           {route === "ai"         && <ScreenAI         focus={focus} openAI={() => setAIOpen(true)} />}
-          {route === "limits"     && <ScreenLimits     role={role} />}
-          {route === "rules"      && <ScreenRules      role={role} />}
-          {route === "manage"     && <ScreenManage     role={role} refresh={refresh} />}
-          {route === "log-sample" && <ScreenLogSample  refresh={refresh} setRoute={setRoute} focus={focus} />}
+          {route === "limits"     && <ScreenLimits     role={role} section={section} />}
+          {route === "rules"      && <ScreenRules      role={role} section={section} />}
+          {route === "manage"     && <ScreenManage     role={role} section={section} refresh={refresh} />}
+          {route === "log-sample" && <ScreenLogSample  section={section} refresh={refresh} setRoute={setRoute} focus={focus} />}
           {route === "ref"        && <ScreenRef />}
           {route === "sample"     && <ScreenSample     sampleId={focused?.id} back={back} openAI={() => setAIOpen(true)} role={role} refresh={refresh}/>}
           {route === "asset"      && <ScreenAsset      assetId={focused?.id}  back={back} focus={focus} openAI={() => setAIOpen(true)} setRoute={setRoute} />}

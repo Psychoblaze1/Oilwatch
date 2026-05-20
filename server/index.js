@@ -67,6 +67,16 @@ app.delete("/api/asset-types/:id", (req, res) => {
   try { dbApi.deleteAssetType(req.params.id); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+app.post("/api/asset-classes", (req, res) => {
+  const { label, section } = req.body || {};
+  if (!label) return res.status(400).json({ error: "label required" });
+  try { res.json(dbApi.createAssetClass({ label, section })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/asset-classes/:id", (req, res) => {
+  try { dbApi.deleteAssetClass(req.params.id); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
 app.post("/api/engines", (req, res) => {
   const e = req.body || {};
   if (!e.siteId || !e.name) return res.status(400).json({ error: "siteId and name required" });

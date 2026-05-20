@@ -110,7 +110,7 @@ function RoleSwitcher({ role, setRole }) {
   );
 }
 
-function Topbar({ site, setSite, route, openAI, onSearch, dark, onToggleTheme }) {
+function Topbar({ site, setSite, route, openAI, onSearch, dark, onToggleTheme, section, setSection }) {
   const titles = {
     dashboard: "Fleet Overview",
     samples:   "Samples",
@@ -143,6 +143,17 @@ function Topbar({ site, setSite, route, openAI, onSearch, dark, onToggleTheme })
           <span className="crumb-sep">/</span>
           <span className="crumb-cur">{(titles[route] || route).toUpperCase()}</span>
         </div>
+        {setSection && (
+          <div className="section-sw" role="tablist" aria-label="Lab section">
+            {(window.SECTIONS || []).map(s => (
+              <button key={s.id} role="tab" aria-selected={section === s.id}
+                      className={`section-tab ${section === s.id ? "is-active" : ""}`}
+                      onClick={() => setSection(s.id)}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="top-search">
@@ -274,6 +285,21 @@ const ShellStyles = () => (
       padding: 0 22px; height: 56px;
       background: var(--bg-elev); border-bottom: 1px solid var(--line);
       position: sticky; top: 0; z-index: 50;
+    }
+    .top-left { display: flex; align-items: center; gap: 16px; }
+    .section-sw {
+      display: inline-flex; align-items: center; gap: 2px;
+      padding: 3px; border-radius: 8px;
+      background: var(--bg-sunken); border: 1px solid var(--line);
+    }
+    .section-tab {
+      padding: 4px 12px; border-radius: 6px;
+      font-size: 12px; font-weight: 500; color: var(--ink-2);
+      background: transparent; border: 0;
+    }
+    .section-tab:hover { color: var(--ink); }
+    .section-tab.is-active {
+      background: var(--accent); color: #fff;
     }
     .crumbs { font-size: 11px; letter-spacing: 0.12em; color: var(--ink-3); }
     .crumb-pre { color: var(--ink-3); }
