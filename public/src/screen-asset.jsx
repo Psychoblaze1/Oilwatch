@@ -79,7 +79,7 @@ function ScreenAsset({ assetId, back, focus, openAI }) {
           <div style={{ display: "flex", gap: 14, marginTop: 12, fontSize: 11, color: "var(--ink-3)" }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               <Icon name="ai" size={11} style={{ color: "var(--accent)" }}/>
-              <span><b style={{ color: "var(--ink-2)" }}>Claude:</b> Trend slope +1.8 ppm/sample (3σ above 90-day median). Iron + chromium running together is the classic Lycoming cam/lifter signature — recommend cutting the next oil filter and tightening the sample cadence to 10h.</span>
+              <span><b style={{ color: "var(--ink-2)" }}>Claude:</b> Trend slope +1.8 ppm/sample (3σ above 90-day median). Iron + chromium running together {window.isAviationAsset(asset) ? "is the classic aviation cam/lifter signature" : `is consistent with accelerated wear on this ${(asset.classLabel || "engine").toLowerCase()}`} — recommend cutting the next filter and tightening the sample cadence.</span>
             </span>
           </div>
         </div>

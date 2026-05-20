@@ -122,6 +122,7 @@ function App() {
           {route === "assets"     && <ScreenAssets     siteFilter={siteFilter} section={section} focus={focus} />}
           {route === "alarms"     && <ScreenAlarms     siteFilter={siteFilter} section={section} focus={focus} />}
           {route === "ai"         && <ScreenAI         focus={focus} openAI={() => setAIOpen(true)} />}
+          {route === "ai-library" && <ScreenAILibrary  section={section} focus={focus} />}
           {route === "limits"     && <ScreenLimits     role={role} section={section} />}
           {route === "rules"      && <ScreenRules      role={role} section={section} />}
           {route === "manage"     && <ScreenManage     role={role} section={section} refresh={refresh} />}

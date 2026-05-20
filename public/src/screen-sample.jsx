@@ -120,7 +120,11 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
             </div>
             <div className="card-body">
               <div style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--ink)" }}>
-                <b>Likely cam / lifter wear.</b> Iron ({results.find(r => r.code === "Fe")?.value} ppm) and chromium ({results.find(r => r.code === "Cr")?.value} ppm) are running together — the classic Lycoming corrosion-driven cam pattern, often tied to low recent activity. Aluminum at {results.find(r => r.code === "Al")?.value} ppm and silicon at {results.find(r => r.code === "Si")?.value} ppm round out the picture. Matches <b>3 historical patterns</b> on this engine class. Recommend a filter cut at the next change and a follow-up at 10 hours rather than the usual interval. Estimated time to inspection threshold: <b>{asset.rulDays} hours</b>.
+                {window.isAviationAsset(asset) ? (
+                  <><b>Likely cam / lifter wear.</b> Iron ({results.find(r => r.code === "Fe")?.value} ppm) and chromium ({results.find(r => r.code === "Cr")?.value} ppm) are running together — the classic aviation corrosion-driven cam pattern, often tied to low recent activity. Aluminum at {results.find(r => r.code === "Al")?.value} ppm and silicon at {results.find(r => r.code === "Si")?.value} ppm round out the picture. Matches <b>3 historical patterns</b> on this engine class. Recommend a filter cut at the next change and a follow-up at 10 hours rather than the usual interval. Estimated time to inspection threshold: <b>{asset.rulDays} hours</b>.</>
+                ) : (
+                  <><b>Elevated wear-metal signature.</b> Iron ({results.find(r => r.code === "Fe")?.value} ppm) and chromium ({results.find(r => r.code === "Cr")?.value} ppm) are running together on this <b>{(asset.classLabel || "engine").toLowerCase()}</b> — consistent with accelerated frictional wear under the current duty cycle. Aluminum at {results.find(r => r.code === "Al")?.value} ppm and silicon at {results.find(r => r.code === "Si")?.value} ppm round out the picture. Recommend a filter cut at the next change and shorten the sample cadence for the next two intervals. Estimated time to inspection threshold: <b>{asset.rulDays} hours</b>.</>
+                )}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 14 }}>
                 <div style={{ padding: "10px 12px", background: "var(--bg-sunken)", borderRadius: 6 }}>
@@ -129,7 +133,7 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
                 </div>
                 <div style={{ padding: "10px 12px", background: "var(--bg-sunken)", borderRadius: 6 }}>
                   <div className="mono" style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: 0.08 }}>INSPECT</div>
-                  <div style={{ fontSize: 12.5, marginTop: 4 }}>Borescope cam &amp; lifters</div>
+                  <div style={{ fontSize: 12.5, marginTop: 4 }}>{window.isAviationAsset(asset) ? "Borescope cam & lifters" : "Inspect bearings & cylinder liner"}</div>
                 </div>
                 <div style={{ padding: "10px 12px", background: "var(--bg-sunken)", borderRadius: 6 }}>
                   <div className="mono" style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: 0.08 }}>EST. TIL ACTION</div>
@@ -231,6 +235,8 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
           </div>
         </div>
       </div>
+
+      <FieldReferencesCard assetId={sample.assetId} />
 
       {/* Internal workflow actions — kept off the printed report. */}
       <div className="card" style={{ marginTop: 16, borderColor: "var(--accent-line)" }}>
@@ -411,6 +417,8 @@ function DieselSampleView({ sample, asset, results, status, canApprove, canPubli
         </div>
       </div>
 
+      <FieldReferencesCard assetId={sample.assetId} />
+
       {/* Internal workflow actions — kept off the printed report. */}
       <div className="card" style={{ marginTop: 16, borderColor: "var(--accent-line)" }}>
         <div className="card-head">
@@ -573,3 +581,48 @@ function downsizeImage(file, maxW = 800, quality = 0.82) {
 }
 
 window.DieselSampleView = DieselSampleView;
+
+// ============================================================
+// Field references — every web citation the AI has surfaced for the
+// engine this sample belongs to. Pulled from /api/ai/library.
+// ============================================================
+function FieldReferencesCard({ assetId }) {
+  const [items, setItems] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    if (!assetId) { setLoading(false); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await window.api.aiLibrary({ assetId, limit: 25 });
+        if (!cancelled) setItems(r.responses || []);
+      } finally { if (!cancelled) setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [assetId]);
+  if (loading || !assetId) return null;
+  const citations = [];
+  for (const r of items) for (const c of (r.citations || [])) citations.push({ ...c, question: r.userQuestion });
+  if (citations.length === 0) return null;
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="card-head">
+        <span className="card-title">Field references</span>
+        <span className="card-sub mono">{citations.length} CITATION{citations.length === 1 ? "" : "S"} · FROM AI WEB SEARCHES ON THIS ENGINE</span>
+      </div>
+      <div className="card-body no-pad">
+        {citations.slice(0, 12).map((c, k) => (
+          <a key={k} href={c.url} target="_blank" rel="noopener" style={{
+            display: "block", padding: "10px 14px",
+            borderBottom: k < Math.min(citations.length, 12) - 1 ? "1px solid var(--line)" : "none",
+            color: "var(--ink)", textDecoration: "none",
+          }}>
+            <span className="mono" style={{ fontSize: 11, color: "var(--accent)" }}>{c.domain || "link"}</span>
+            <span style={{ marginLeft: 8, fontSize: 12.5 }}>{c.title || c.url}</span>
+            <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)", marginTop: 3 }}>{c.question}</div>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}

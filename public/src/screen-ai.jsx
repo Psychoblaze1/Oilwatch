@@ -3,20 +3,15 @@
 // ============================================================
 function ScreenAI({ focus, openAI }) {
   const presets = [
-    { t: "Which Lycoming engines have crossed 2σ on iron in the last 60 days?", icon: "spark" },
+    { t: "Which engines have crossed 2σ on iron in the last 60 days?", icon: "spark" },
     { t: "Summarize fleet health changes since last week and rank by criticality.", icon: "spark" },
-    { t: "For the worst-trending engine, project hours-to-cam-scope using the last 8 samples.", icon: "spark" },
-    { t: "Find samples matching the classic cam/lifter wear pattern (Fe + Cr running together).", icon: "spark" },
-    { t: "Draft an owner-facing root-cause note for sample S-50312 in plain English.", icon: "spark" },
-    { t: "What resample cadence should I recommend for low-utilization Lycoming O-540s?", icon: "spark" },
+    { t: "For the worst-trending engine, project hours-to-inspection using the last 8 samples.", icon: "spark" },
+    { t: "Find samples where iron and chromium are rising together.", icon: "spark" },
+    { t: "Draft an owner-facing root-cause note for the latest critical sample.", icon: "spark" },
+    { t: "Any Airworthiness Directives or OEM service bulletins I should know about for the focused asset?", icon: "spark" },
   ];
 
-  const recent = [
-    { q: "Compare AeroShell W100 Plus vs Phillips X/C 20W-50 on cam-area wear-metal generation for IO-540s.", t: "2 hours ago", scope: "Fleet · 412 samples" },
-    { q: "Which 5 engines are most likely to need cam pull in the next 30 days?",                            t: "Yesterday",  scope: "Fleet · all operators" },
-    { q: "Why is lead in piston-aircraft oil normally 4,000–7,000 ppm? Is high Pb ever actionable?",         t: "2 days ago", scope: "Reference" },
-    { q: "Pull all samples where Fe + Cr both have +3 consecutive increases.",                              t: "Last week",  scope: "Filter query" },
-  ];
+  const recent = [];
 
   return (
     <div className="page">
@@ -43,7 +38,7 @@ function ScreenAI({ focus, openAI }) {
           }}>
             <Icon name="ai" size={18} style={{ color: "var(--accent)" }}/>
             <input
-              placeholder="e.g. Rank Lycoming O-540s by likelihood of cam pull in the next quarter…"
+              placeholder="e.g. Any FAA Airworthiness Directives or OEM service bulletins for the focused asset?"
               onClick={openAI}
               style={{ flex: 1, background: "none", border: 0, outline: 0, fontSize: 14 }}
             />
@@ -105,8 +100,8 @@ function ScreenAI({ focus, openAI }) {
           {[
             { l: "Sample database",     n: window.SAMPLES.length.toLocaleString(), s: "Published, last 90 d" },
             { l: "Engine registry",     n: String(window.ASSETS.length),           s: "All operators" },
-            { l: "Engine specs",        n: "32",                                   s: "Lycoming, Continental, Rotax, P&W, …" },
-            { l: "Historical patterns", n: "94",                                   s: "Resolved cam/lifter & cylinder cases" },
+            { l: "Asset classes",       n: String(window.ASSET_CLASSES.length),    s: "Aviation, industrial, marine, hydraulic, …" },
+            { l: "Web search",          n: "On",                                   s: "FAA ADs · OEM SBs · ASTM / SANS · cached" },
           ].map((d, i) => (
             <div key={i} style={{ padding: 14, background: "var(--bg-sunken)", borderRadius: 8 }}>
               <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)", letterSpacing: 0.1, textTransform: "uppercase" }}>{d.l}</div>

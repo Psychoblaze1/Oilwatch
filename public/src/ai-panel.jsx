@@ -20,6 +20,9 @@ function AIPanel({ onClose, focus, context }) {
   ]);
   const [input, setInput] = React.useState("");
   const [pending, setPending] = React.useState(false);
+  // When the user clicks Refresh on the last answer, skip the cache and
+  // hit the model again. Resets to false after each turn.
+  const [skipCache, setSkipCache] = React.useState(false);
   const scrollRef = React.useRef(null);
   const abortRef = React.useRef(null);
 
@@ -51,7 +54,7 @@ function AIPanel({ onClose, focus, context }) {
 
     // Open an empty AI message we'll stream tokens into.
     const aiIndex = history.length;
-    setMessages(m => [...m, { role: "ai", text: "", time: window.fmtTime(new Date()) }]);
+    setMessages(m => [...m, { role: "ai", text: "", time: window.fmtTime(new Date()), citations: [], fromCache: false }]);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -63,6 +66,7 @@ function AIPanel({ onClose, focus, context }) {
         body: JSON.stringify({
           messages: toAPI(messages, text),
           context: context || {},
+          options: { skipCache },
         }),
         signal: controller.signal,
       });
@@ -79,27 +83,64 @@ function AIPanel({ onClose, focus, context }) {
       const decoder = new TextDecoder();
       let buf = "";
       let acc = "";
+      const citationMap = new Map();
+      let fromCache = false;
+      let cacheHits = 0;
 
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
-        // Anthropic SSE: lines like "event: content_block_delta\ndata: {...}\n\n"
+        // Each SSE message is `event:\ndata:\n\n` or `data:\n\n`. We
+        // split on blank-line boundaries.
         const chunks = buf.split("\n\n");
         buf = chunks.pop() || "";
         for (const chunk of chunks) {
+          let event = "";
+          let dataLines = [];
           for (const line of chunk.split("\n")) {
-            if (!line.startsWith("data:")) continue;
-            const payload = line.slice(5).trim();
-            if (!payload || payload === "[DONE]") continue;
-            try {
-              const evt = JSON.parse(payload);
-              if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
-                acc += evt.delta.text;
-                setMessages(m => m.map((msg, i) => i === aiIndex ? { ...msg, text: acc } : msg));
-              }
-            } catch (_) { /* skip non-JSON keep-alives */ }
+            if (line.startsWith("event:")) event = line.slice(6).trim();
+            else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
           }
+          const payload = dataLines.join("\n");
+          if (!payload || payload === "[DONE]") continue;
+
+          // Lab88-only cache hint event.
+          if (event === "lab88_cache") {
+            try {
+              const c = JSON.parse(payload);
+              fromCache = true;
+              cacheHits = c.hits || 0;
+              for (const cite of (c.citations || [])) {
+                if (cite.url) citationMap.set(cite.url, cite);
+              }
+              setMessages(m => m.map((msg, i) => i === aiIndex
+                ? { ...msg, fromCache: true, cacheHits, citations: [...citationMap.values()] }
+                : msg));
+            } catch (_) {}
+            continue;
+          }
+
+          try {
+            const evt = JSON.parse(payload);
+            if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
+              acc += evt.delta.text;
+              setMessages(m => m.map((msg, i) => i === aiIndex ? { ...msg, text: acc } : msg));
+            }
+            // Live web_search citations stream as content_block_start
+            // with type=web_search_tool_result containing an array.
+            if (evt.type === "content_block_start" && evt.content_block?.type === "web_search_tool_result") {
+              for (const r of (evt.content_block.content || [])) {
+                if (r.type === "web_search_result" && r.url) {
+                  let domain = "";
+                  try { domain = new URL(r.url).hostname.replace(/^www\./, ""); } catch (_) {}
+                  citationMap.set(r.url, { url: r.url, title: r.title || r.url, domain, snippet: r.snippet || null });
+                }
+              }
+              setMessages(m => m.map((msg, i) => i === aiIndex
+                ? { ...msg, citations: [...citationMap.values()] } : msg));
+            }
+          } catch (_) {}
         }
       }
     } catch (e) {
@@ -110,8 +151,20 @@ function AIPanel({ onClose, focus, context }) {
       }
     } finally {
       setPending(false);
+      setSkipCache(false);
       abortRef.current = null;
     }
+  };
+  const refreshLast = async () => {
+    if (pending || messages.length < 2) return;
+    // Find the most recent user message and re-send it with skipCache.
+    const lastUser = [...messages].reverse().find(m => m.role === "user");
+    if (!lastUser) return;
+    setSkipCache(true);
+    // Drop the previous AI response so we start fresh.
+    setMessages(m => m.slice(0, m.length - 1));
+    // Defer until state settles, then send.
+    setTimeout(() => sendMessage(lastUser.text), 0);
   };
 
   const onKey = (e) => {
@@ -154,6 +207,16 @@ function AIPanel({ onClose, focus, context }) {
         @keyframes tdot { 0%, 80%, 100% { opacity: 0.3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
         .ai-foot { display: flex; gap: 6px; flex-wrap: wrap; }
         .ai-context { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--ink-3); font-family: var(--mono); letter-spacing: 0.06em; }
+        .ai-cache-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--ok); margin-top: 4px; letter-spacing: 0.04em; }
+        .ai-cache-refresh { margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: var(--bg-sunken); color: var(--ink-2); font-size: 10.5px; border: 1px solid var(--line); }
+        .ai-cache-refresh:hover { background: var(--bg); color: var(--ink); }
+        .ai-web-cites { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+        .ai-web-cites-head { font-size: 10px; color: var(--ink-3); letter-spacing: 0.12em; padding-bottom: 2px; }
+        .ai-web-cite { display: block; padding: 7px 10px; border-radius: 6px; background: var(--bg-elev); border: 1px solid var(--line); text-decoration: none; color: var(--ink); }
+        .ai-web-cite:hover { border-color: var(--accent-line); background: var(--bg); }
+        .ai-web-cite-domain { display: inline-block; font-size: 10px; color: var(--accent); letter-spacing: 0.04em; }
+        .ai-web-cite-title { display: inline-block; margin-left: 6px; font-size: 12px; }
+        .ai-web-cite-snippet { font-size: 11px; color: var(--ink-3); margin-top: 4px; line-height: 1.4; }
       `}</style>
 
       <div className="ai-head">
@@ -175,6 +238,14 @@ function AIPanel({ onClose, focus, context }) {
                 <div className="ai-typing"><span/><span/><span/></div>
               )}
             </div>
+            {m.role === "ai" && m.fromCache && (
+              <div className="ai-cache-badge mono">
+                <Icon name="check" size={10}/> Served from cache · {m.cacheHits || 1} prior read{(m.cacheHits || 1) === 1 ? "" : "s"}
+                {i === messages.length - 1 && !pending && (
+                  <button className="ai-cache-refresh" onClick={refreshLast} title="Re-ask the model with fresh web search">Refresh</button>
+                )}
+              </div>
+            )}
             {m.cites && (
               <div className="ai-cites">
                 {m.cites.map((c, k) => (
@@ -183,6 +254,18 @@ function AIPanel({ onClose, focus, context }) {
                     <span>{c.label}</span>
                     <span className="mono" style={{ marginLeft: "auto" }}>{c.id}</span>
                   </button>
+                ))}
+              </div>
+            )}
+            {m.role === "ai" && Array.isArray(m.citations) && m.citations.length > 0 && (
+              <div className="ai-web-cites">
+                <div className="ai-web-cites-head mono">SOURCES · {m.citations.length}</div>
+                {m.citations.map((c, k) => (
+                  <a key={k} href={c.url} target="_blank" rel="noopener" className="ai-web-cite" title={c.url}>
+                    <span className="ai-web-cite-domain mono">{c.domain || "link"}</span>
+                    <span className="ai-web-cite-title">{c.title || c.url}</span>
+                    {c.snippet && <div className="ai-web-cite-snippet">{c.snippet}</div>}
+                  </a>
                 ))}
               </div>
             )}

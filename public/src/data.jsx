@@ -46,14 +46,13 @@ const COND = {
 };
 function scoreToCode(s) { return s >= 75 ? 1 : s >= 50 ? 2 : s >= 25 ? 3 : 4; }
 
-const OILS = [
-  { brand: "AeroShell",  name: "AeroShell W100",            iso: "SAE 50" },
-  { brand: "AeroShell",  name: "AeroShell W100 Plus",       iso: "SAE 50" },
-  { brand: "AeroShell",  name: "AeroShell W80",             iso: "SAE 40" },
-  { brand: "AeroShell",  name: "AeroShell 15W-50",          iso: "SAE 15W-50" },
-  { brand: "Phillips 66",name: "Phillips X/C 20W-50",       iso: "SAE 20W-50" },
-  { brand: "ExxonMobil", name: "Exxon Elite 20W-50",        iso: "SAE 20W-50" },
-  { brand: "AeroShell",  name: "AeroShell Sport Plus 4",    iso: "SAE 10W-40" },
+// Fallback OILS list. The live catalogue ships from /api/bootstrap
+// (server-managed `oils` table) and lands in `window.OILS`. Kept here
+// only so screens that grab `window.OILS` before bootstrap completes
+// don't render an empty dropdown.
+const OILS_FALLBACK = [
+  { id: "aeroshell-w100",  brand: "AeroShell",  name: "AeroShell W100",     iso: "SAE 50",     category: "aviation" },
+  { id: "delo-400-15w40",  brand: "Chevron",    name: "Delo 400 SDE",       iso: "SAE 15W-40", category: "industrial" },
 ];
 
 // Aviation oil parameters. Uses warn/alarm tier semantics (OK / WARN / ALARM).
@@ -111,10 +110,35 @@ const DIESEL_PARAMS = [
   { code: "Dist_FBP",    name: "FBP — final boiling",    unit: "°C",    method: "ASTM D86",          group: "distillation", dir: "info",                         paramSet: "diesel" },
 ];
 
-// Lookup a parameter by code from either catalog. Codes are disjoint
-// between the two catalogs by design.
+// Lookup a parameter by code. Looks at the built-in aviation + diesel
+// catalogues first, then falls back to any customer-defined parameters
+// loaded from /api/bootstrap so Manage > Parameters edits propagate
+// everywhere without per-screen knowledge.
 function getParam(code) {
+  const cm = (window.PARAMS_CUSTOM || []).find(p => p.code === code);
+  if (cm) {
+    return {
+      code: cm.code, name: cm.name, unit: cm.unit || "",
+      method: cm.method || "Custom", group: "custom",
+      dir: cm.dir || "info",
+      warn: cm.warn ?? null, alarm: cm.alarm ?? null, target: cm.target ?? null,
+      min: cm.minV ?? null, max: cm.maxV ?? null,
+      paramSet: cm.section === "diesel" ? "diesel" : "aviation",
+      isCustom: true,
+    };
+  }
   return PARAM_DEFS.find(p => p.code === code) || DIESEL_PARAMS.find(p => p.code === code) || null;
+}
+// Unified iteration helpers — used by limits / log-sample screens that
+// want to render aviation + custom (oil-section) params together, or
+// diesel + custom (diesel-section) params together.
+function allOilParams() {
+  const customs = (window.PARAMS_CUSTOM || []).filter(p => p.section !== "diesel").map(p => getParam(p.code));
+  return [...PARAM_DEFS, ...customs];
+}
+function allDieselParams() {
+  const customs = (window.PARAMS_CUSTOM || []).filter(p => p.section === "diesel").map(p => getParam(p.code));
+  return [...DIESEL_PARAMS, ...customs];
 }
 
 // ============================================================
@@ -279,6 +303,8 @@ window.SITES = [];
 window.LOCATIONS = [];
 window.ASSET_TYPES = [];
 window.ASSET_CLASSES = ASSET_CLASSES_FALLBACK.slice();
+window.OILS = OILS_FALLBACK.slice();
+window.PARAMS_CUSTOM = [];   // user-defined parameters from /api/bootstrap
 window.ASSETS = [];
 window.SAMPLES = [];
 window.ALARMS = [];
@@ -308,6 +334,8 @@ async function bootstrap() {
   window.ASSET_CLASSES = (b.assetClasses && b.assetClasses.length)
     ? b.assetClasses.map(c => ({ ...c }))
     : ASSET_CLASSES_FALLBACK.slice();
+  window.OILS = (b.oils && b.oils.length) ? b.oils.map(o => ({ ...o })) : OILS_FALLBACK.slice();
+  window.PARAMS_CUSTOM = (b.paramsCustom || []).map(p => ({ ...p }));
   window.ASSETS      = (b.engines || []).map(e => ({ ...e }));
   window.SAMPLES     = (b.samples || []).map(s => ({ ...s }));
   window.ALARMS      = (b.alarms || []).map(a => ({ ...a }));
@@ -342,6 +370,14 @@ function getSectionForSample(s) {
 function getAssetClassesForSection(section) {
   return window.ASSET_CLASSES.filter(c => c.section === section);
 }
+// True when an engine row is an aircraft engine — used to decide if
+// aviation-specific copy (cam/lifter, FAA AD, borescope) belongs.
+const AVIATION_CLASS_IDS = new Set(["lyco4","lyco6","conto4","conto6","rotax","radial"]);
+function isAviationAsset(a) {
+  if (!a) return false;
+  if (a.aircraftReg) return true;
+  return AVIATION_CLASS_IDS.has(a.class);
+}
 function getSampleTypesForSection(section) {
   const ps = section === "diesel" ? "diesel" : "aviation";
   return SAMPLE_TYPES.filter(t => t.paramSet === ps);
@@ -364,17 +400,26 @@ function getEnginesForAssetType(siteId, locationId, assetTypeId) {
 
 // ---- Limits (server-backed; reads cache, writes call API) ------------
 
+// Build the active limit set for a given asset class. Aviation params
+// keep warn/alarm/target semantics; diesel + custom params layer
+// min/max/dir overrides on top of their defaults.
 function getLimits(assetClass) {
+  const scope = assetClass || "all";
   const out = {};
-  for (const p of PARAM_DEFS) {
-    const ov = _limits.find(l => l.scope === (assetClass || "all") && l.paramCode === p.code) || {};
+  const fold = (p) => {
+    const ov = _limits.find(l => l.scope === scope && l.paramCode === p.code) || {};
     out[p.code] = {
       ...p,
       warn:   ov.warn   ?? p.warn,
       alarm:  ov.alarm  ?? p.alarm,
       target: ov.target ?? p.target,
+      min:    ov.minV   ?? p.min,
+      max:    ov.maxV   ?? p.max,
+      dir:    ov.dir    ?? p.dir,
     };
-  }
+  };
+  for (const p of allOilParams())    fold(p);
+  for (const p of allDieselParams()) fold(p);
   return out;
 }
 async function setLimit(scope, paramCode, patch) {
@@ -552,7 +597,8 @@ function recentPublished(n = 6) {
 }
 
 Object.assign(window, {
-  SECTIONS, ROLES, COND, OILS, PARAM_DEFS, DIESEL_PARAMS, INSTRUMENTS, SAMPLE_TYPES,
+  SECTIONS, ROLES, COND, PARAM_DEFS, DIESEL_PARAMS, INSTRUMENTS, SAMPLE_TYPES,
+  allOilParams, allDieselParams,
   scoreToCode, fmtDate, fmtShortDate, fmtTime,
   resolveResults, makeTestResults, makeTrend, evalRule,
   getLimits, setLimit, resetLimits,
@@ -565,4 +611,5 @@ Object.assign(window, {
   getLocationsForSite, getAssetTypesForSite, getEnginesForAssetType,
   // Section helpers
   getSectionForAsset, getSectionForSample, getAssetClassesForSection, getSampleTypesForSection,
+  isAviationAsset,
 });

@@ -58,10 +58,10 @@ function ScreenManage({ role, refresh }) {
     await refreshAll();
   };
 
-  // --- Register Equipment form (now with asset class + section)
+  // --- Register Equipment form (asset class + section + tail#)
   const [newEng, setNewEng] = React.useState({
     name: "", tag: "", locationId: "", assetTypeId: "", classId: "",
-    section: "oil", oem: "", oilName: "",
+    section: "oil", oem: "", oilName: "", aircraftReg: "",
   });
   const onAddEngine = async () => {
     if (!canEdit || !siteId || !newEng.name.trim()) return;
@@ -75,10 +75,59 @@ function ScreenManage({ role, refresh }) {
       tag: newEng.tag.trim(),
       oem: newEng.oem.trim() || null,
       oilName: newEng.oilName.trim() || null,
+      aircraftReg: newEng.aircraftReg.trim() || null,
       health: 95, code: 1, runHours: 0, criticality: "C", rulDays: 120,
     });
-    setNewEng({ name: "", tag: "", locationId: "", assetTypeId: "", classId: "", section: newEng.section, oem: "", oilName: "" });
+    setNewEng({ name: "", tag: "", locationId: "", assetTypeId: "", classId: "", section: newEng.section, oem: "", oilName: "", aircraftReg: "" });
     await refreshAll();
+  };
+
+  // --- Add Oil form
+  const [newOil, setNewOil] = React.useState({ brand: "", name: "", iso: "", category: "industrial" });
+  const onAddOil = async () => {
+    if (!canEdit || !newOil.brand.trim() || !newOil.name.trim()) return;
+    try {
+      await window.api.createOil({ brand: newOil.brand.trim(), name: newOil.name.trim(), iso: newOil.iso.trim() || null, category: newOil.category });
+      setNewOil({ brand: "", name: "", iso: "", category: newOil.category });
+      await refreshAll();
+    } catch (e) { alert(e.message); }
+  };
+  const onDeleteOil = async (oil) => {
+    if (!canEdit || oil.isBuiltin) return;
+    if (!confirm(`Delete oil "${oil.brand} ${oil.name}"?`)) return;
+    try { await window.api.deleteOil(oil.id); await refreshAll(); } catch (e) { alert(e.message); }
+  };
+
+  // --- Add Parameter form
+  const [newParam, setNewParam] = React.useState({
+    code: "", name: "", unit: "", method: "", section: "oil",
+    dir: "info", warn: "", alarm: "", target: "", min: "", max: "",
+  });
+  const num = (v) => { if (v === "") return null; const n = Number(v); return isFinite(n) ? n : null; };
+  const onAddParam = async () => {
+    if (!canEdit || !newParam.code.trim() || !newParam.name.trim()) return;
+    try {
+      await window.api.createParam({
+        code: newParam.code.trim(),
+        name: newParam.name.trim(),
+        unit: newParam.unit.trim(),
+        method: newParam.method.trim(),
+        section: newParam.section,
+        dir: newParam.dir,
+        warn:   num(newParam.warn),
+        alarm:  num(newParam.alarm),
+        target: num(newParam.target),
+        min:    num(newParam.min),
+        max:    num(newParam.max),
+      });
+      setNewParam({ ...newParam, code: "", name: "", unit: "", method: "", warn: "", alarm: "", target: "", min: "", max: "" });
+      await refreshAll();
+    } catch (e) { alert(e.message); }
+  };
+  const onDeleteParam = async (code) => {
+    if (!canEdit) return;
+    if (!confirm(`Delete custom parameter "${code}"?`)) return;
+    try { await window.api.deleteParam(code); await refreshAll(); } catch (e) { alert(e.message); }
   };
 
   // --- Add Asset Class form
@@ -328,7 +377,7 @@ function ScreenManage({ role, refresh }) {
           <div className="card-body" style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
             <div style={{ flex: 1 }}>
               <div className="mng-label">New class label</div>
-              <input className="mng-input" placeholder="Caterpillar 3508 / John Deere 6068 / Pratt R-1830"
+              <input className="mng-input" placeholder="Caterpillar 3508 / John Deere 6068"
                      value={newClass.label} onChange={e => setNewClass({ ...newClass, label: e.target.value })}
                      onKeyDown={e => e.key === "Enter" && onAddClass()} />
             </div>
@@ -343,6 +392,130 @@ function ScreenManage({ role, refresh }) {
             <button className="btn btn-primary" onClick={onAddClass} disabled={!newClass.label.trim()}>
               <Icon name="plus" size={12}/> Add class
             </button>
+          </div>
+        )}
+      </div>
+
+      {/* Oils / lubricants catalogue */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <span className="card-title">Oils & Lubricants</span>
+          <span className="card-sub mono">{window.OILS.length} TOTAL · AVIATION + INDUSTRIAL + MARINE + HYDRAULIC + GEARBOX</span>
+        </div>
+        <div className="card-body no-pad">
+          <table className="table">
+            <thead><tr><th>Brand</th><th>Name</th><th>Grade</th><th>Category</th><th>Type</th><th></th></tr></thead>
+            <tbody>
+              {window.OILS.map(o => (
+                <tr key={o.id}>
+                  <td>{o.brand}</td>
+                  <td>{o.name}</td>
+                  <td className="mono t-muted">{o.iso || "—"}</td>
+                  <td className="t-muted">{o.category || "—"}</td>
+                  <td className="t-muted">{o.isBuiltin ? "Built-in" : "Custom"}</td>
+                  <td style={{ textAlign: "right" }}>
+                    {canEdit && !o.isBuiltin && (
+                      <button className="btn btn-sm btn-ghost" onClick={() => onDeleteOil(o)}>
+                        <Icon name="trash" size={12}/>
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {canEdit && (
+          <div className="card-body" style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr 0.8fr 1fr auto", gap: 8, alignItems: "end" }}>
+            <div><div className="mng-label">Brand</div><input className="mng-input" placeholder="Castrol" value={newOil.brand} onChange={e => setNewOil({ ...newOil, brand: e.target.value })} /></div>
+            <div><div className="mng-label">Name</div><input className="mng-input" placeholder="GTX 20W-50" value={newOil.name} onChange={e => setNewOil({ ...newOil, name: e.target.value })} /></div>
+            <div><div className="mng-label">Grade</div><input className="mng-input" placeholder="SAE 20W-50" value={newOil.iso} onChange={e => setNewOil({ ...newOil, iso: e.target.value })} /></div>
+            <div>
+              <div className="mng-label">Category</div>
+              <select className="mng-input" value={newOil.category} onChange={e => setNewOil({ ...newOil, category: e.target.value })}>
+                <option value="industrial">Industrial</option>
+                <option value="aviation">Aviation</option>
+                <option value="marine">Marine</option>
+                <option value="hydraulic">Hydraulic</option>
+                <option value="gearbox">Gearbox</option>
+                <option value="fuel">Fuel</option>
+              </select>
+            </div>
+            <button className="btn btn-primary" onClick={onAddOil} disabled={!newOil.brand.trim() || !newOil.name.trim()}>
+              <Icon name="plus" size={12}/> Add oil
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Custom parameters */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <span className="card-title">Custom Test Parameters</span>
+          <span className="card-sub mono">{window.PARAMS_CUSTOM.length} CUSTOM · MERGES WITH BUILT-IN CATALOGUE</span>
+        </div>
+        <div className="card-body no-pad">
+          {window.PARAMS_CUSTOM.length === 0 ? (
+            <div style={{ padding: 16, color: "var(--ink-3)", fontSize: 12.5 }}>
+              No custom parameters yet. Add one below — it appears in Limits and Log Sample's manual-readings step automatically.
+            </div>
+          ) : (
+            <table className="table">
+              <thead><tr><th>Code</th><th>Name</th><th>Unit</th><th>Method</th><th>Section</th><th>Dir</th><th>Limits</th><th></th></tr></thead>
+              <tbody>
+                {window.PARAMS_CUSTOM.map(p => (
+                  <tr key={p.code}>
+                    <td className="mono t-id">{p.code}</td>
+                    <td>{p.name}</td>
+                    <td className="mono t-muted">{p.unit || "—"}</td>
+                    <td className="t-muted">{p.method || "—"}</td>
+                    <td><Tag tone={p.section === "diesel" ? "accent" : "neutral"}>{p.section === "diesel" ? "Diesel" : "Oil"}</Tag></td>
+                    <td className="mono t-muted">{p.dir}</td>
+                    <td className="mono t-muted">
+                      {p.dir === "min"   && (p.minV != null ? `min ${p.minV}` : "—")}
+                      {p.dir === "max"   && (p.maxV != null ? `max ${p.maxV}` : "—")}
+                      {p.dir === "range" && (`${p.minV ?? "?"}–${p.maxV ?? "?"}`)}
+                      {(p.dir === "warn" || p.dir === "info") && (p.warn != null || p.alarm != null
+                        ? `warn ${p.warn ?? "—"} · alarm ${p.alarm ?? "—"}`
+                        : "—")}
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      {canEdit && <button className="btn btn-sm btn-ghost" onClick={() => onDeleteParam(p.code)}><Icon name="trash" size={12}/></button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {canEdit && (
+          <div className="card-body" style={{ display: "grid", gridTemplateColumns: "0.7fr 1.3fr 0.6fr 1fr 0.7fr 0.7fr 0.7fr 0.7fr 0.7fr 0.7fr auto", gap: 6, alignItems: "end" }}>
+            <div><div className="mng-label">Code</div><input className="mng-input mono" placeholder="TBN" value={newParam.code} onChange={e => setNewParam({ ...newParam, code: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, "") })} /></div>
+            <div><div className="mng-label">Name</div><input className="mng-input" placeholder="Total Base Number" value={newParam.name} onChange={e => setNewParam({ ...newParam, name: e.target.value })} /></div>
+            <div><div className="mng-label">Unit</div><input className="mng-input" placeholder="mgKOH/g" value={newParam.unit} onChange={e => setNewParam({ ...newParam, unit: e.target.value })} /></div>
+            <div><div className="mng-label">Method</div><input className="mng-input" placeholder="ASTM D2896" value={newParam.method} onChange={e => setNewParam({ ...newParam, method: e.target.value })} /></div>
+            <div>
+              <div className="mng-label">Section</div>
+              <select className="mng-input" value={newParam.section} onChange={e => setNewParam({ ...newParam, section: e.target.value })}>
+                <option value="oil">Oil</option>
+                <option value="diesel">Diesel</option>
+              </select>
+            </div>
+            <div>
+              <div className="mng-label">Dir</div>
+              <select className="mng-input" value={newParam.dir} onChange={e => setNewParam({ ...newParam, dir: e.target.value })}>
+                <option value="info">info</option>
+                <option value="warn">warn</option>
+                <option value="min">min</option>
+                <option value="max">max</option>
+                <option value="range">range</option>
+              </select>
+            </div>
+            <div><div className="mng-label">Warn</div><input className="mng-input mono" type="number" step="any" value={newParam.warn} onChange={e => setNewParam({ ...newParam, warn: e.target.value })} /></div>
+            <div><div className="mng-label">Alarm</div><input className="mng-input mono" type="number" step="any" value={newParam.alarm} onChange={e => setNewParam({ ...newParam, alarm: e.target.value })} /></div>
+            <div><div className="mng-label">Min</div><input className="mng-input mono" type="number" step="any" value={newParam.min} onChange={e => setNewParam({ ...newParam, min: e.target.value })} /></div>
+            <div><div className="mng-label">Max</div><input className="mng-input mono" type="number" step="any" value={newParam.max} onChange={e => setNewParam({ ...newParam, max: e.target.value })} /></div>
+            <button className="btn btn-primary" onClick={onAddParam} disabled={!newParam.code.trim() || !newParam.name.trim()}><Icon name="plus" size={12}/> Add</button>
           </div>
         )}
       </div>
@@ -410,6 +583,21 @@ function ScreenManage({ role, refresh }) {
               <div><div className="mng-label">OEM</div><input className="mng-input" placeholder="Cummins" value={newEng.oem} onChange={e => setNewEng({ ...newEng, oem: e.target.value })}/></div>
               <div><div className="mng-label">Oil / fuel</div><input className="mng-input" placeholder="Sulphur LG CF1" value={newEng.oilName} onChange={e => setNewEng({ ...newEng, oilName: e.target.value })}/></div>
               <button className="btn btn-primary" onClick={onAddEngine} disabled={!newEng.name.trim()}><Icon name="plus" size={12}/> Register</button>
+
+              {/* Aviation-only tail / registration number — shown only when an aviation class is chosen.
+                  Feeds the AI panel's FAA AD lookup directive. */}
+              {isAviationClass(newEng.classId) && (
+                <div style={{ gridColumn: "1 / -1", display: "flex", gap: 8, alignItems: "end" }}>
+                  <div style={{ flex: "0 0 220px" }}>
+                    <div className="mng-label">Aircraft registration / tail #</div>
+                    <input className="mng-input mono" placeholder="N12345 / ZS-ABC"
+                           value={newEng.aircraftReg} onChange={e => setNewEng({ ...newEng, aircraftReg: e.target.value.toUpperCase() })}/>
+                  </div>
+                  <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
+                    Used by the AI panel to search FAA Airworthiness Directives for this airframe.
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -448,5 +636,10 @@ function dataUrlFromImage(file, maxW = 600, quality = 0.85) {
     reader.readAsDataURL(file);
   });
 }
+
+// Aviation engine classes — drives the conditional tail-number input
+// and downstream AI FAA-AD lookups.
+const AVIATION_CLASS_IDS = new Set(["lyco4","lyco6","conto4","conto6","rotax","radial"]);
+function isAviationClass(id) { return id && AVIATION_CLASS_IDS.has(id); }
 
 window.ScreenManage = ScreenManage;

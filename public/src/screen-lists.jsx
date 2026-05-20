@@ -58,6 +58,16 @@ function ScreenSamples({ siteFilter, section, focus, setRoute }) {
 
       <div className="card">
         <div className="card-body no-pad">
+          {list.length === 0 ? (
+            <div style={{ padding: 32, textAlign: "center", color: "var(--ink-3)" }}>
+              No samples {status !== "ALL" ? `with status ${status} ` : ""}in this section yet.
+              <div style={{ marginTop: 12 }}>
+                <button className="btn btn-primary btn-sm" onClick={() => setRoute && setRoute("log-sample")}>
+                  <Icon name="plus" size={12}/> Log the first sample
+                </button>
+              </div>
+            </div>
+          ) : (
           <table className="table">
             <thead><tr>
               <th>Sample</th><th>Type</th><th>Asset</th><th>Site</th><th>Component</th><th>Received</th><th>Score</th><th>Flags</th><th>Analyst</th><th>Status</th>
@@ -79,6 +89,7 @@ function ScreenSamples({ siteFilter, section, focus, setRoute }) {
               ))}
             </tbody>
           </table>
+          )}
         </div>
       </div>
     </div>
@@ -182,6 +193,8 @@ function ScreenAlarms({ siteFilter, section, focus }) {
     try { await window.api.ackAlarm(id, true); } catch (e) { console.error("ack failed", e); }
   };
   const ackAll = async () => {
+    if (alarms.length === 0) return;
+    if (!confirm(`Acknowledge all ${alarms.length} alarm${alarms.length === 1 ? "" : "s"} in this section?`)) return;
     for (const al of alarms) {
       const i = window.ALARMS.findIndex(a => a.id === al.id);
       if (i >= 0) window.ALARMS[i] = { ...window.ALARMS[i], acknowledged: true };
@@ -233,19 +246,19 @@ function ScreenAlarms({ siteFilter, section, focus }) {
 
 function ScreenRef() {
   const groups = [
-    { title: "Aviation Oils", items: window.OILS.map(o => ({ name: o.name, sub: `${o.brand} · ${o.iso}` })) },
+    { title: "Oils & Lubricants", items: (window.OILS || []).map(o => ({ name: o.name, sub: `${o.brand} · ${o.iso || "—"} · ${o.category || ""}` })) },
     { title: "Parameters", items: [
-      { name: "Iron (Fe)",            sub: "ASTM D5185 · ICP-OES · cylinders, cam, lifters" },
-      { name: "Chromium (Cr)",        sub: "ASTM D5185 · piston rings, valves" },
-      { name: "Aluminum (Al)",        sub: "ASTM D5185 · pistons, oil pump body" },
-      { name: "Copper (Cu)",          sub: "ASTM D5185 · bronze bushings, oil cooler" },
-      { name: "Lead (Pb)",            sub: "ASTM D5185 · 100LL avgas residue · 4-7k ppm normal" },
-      { name: "Silicon (Si)",         sub: "ASTM D5185 · airborne dirt / induction leak" },
-      { name: "Water (H₂O)",          sub: "ASTM D6304 · Karl Fischer · short-flight condensation" },
-      { name: "Viscosity @ 100°C",    sub: "ASTM D445 · SAE 50 ≈ 19 cSt · drop = fuel dilution" },
-      { name: "Fuel Dilution",        sub: "GC · rich operation / mag check indicator" },
+      { name: "Iron (Fe)",            sub: "ASTM D5185 · ICP-OES · ferrous wear from rotating contact surfaces" },
+      { name: "Chromium (Cr)",        sub: "ASTM D5185 · rings, valves, plated cylinder surfaces" },
+      { name: "Aluminum (Al)",        sub: "ASTM D5185 · pistons, pump bodies, light alloy housings" },
+      { name: "Copper (Cu)",          sub: "ASTM D5185 · bronze bushings, oil-cooler corrosion" },
+      { name: "Lead (Pb)",            sub: "ASTM D5185 · bearing overlays · 100LL avgas residue in aviation engines" },
+      { name: "Silicon (Si)",         sub: "ASTM D5185 · airborne dirt or induction leak" },
+      { name: "Water (H₂O)",          sub: "ASTM D6304 · Karl Fischer · condensation or coolant leak" },
+      { name: "Viscosity @ 100°C",    sub: "ASTM D445 · fuel dilution drops it, oxidation raises it" },
+      { name: "Fuel Dilution",        sub: "GC · rich operation, ignition / injector fault" },
     ]},
-    { title: "Engine Defaults", items: window.ASSET_CLASSES.map(c => ({ name: c.label, sub: "Standard limit set · 25–50 hr drain cadence" })) },
+    { title: "Asset Classes", items: window.ASSET_CLASSES.map(c => ({ name: c.label, sub: (c.section === "diesel" ? "Diesel section" : "Oil section") + " · standard limit set" })) },
   ];
   return (
     <div className="page">

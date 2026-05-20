@@ -576,14 +576,18 @@
     const get = code => results.find(r => r.code === code);
     const flagged = results.filter(r => r.status === "alarm" || r.status === "warn");
     const cls = asset?.class || "";
-    const isLyco = cls.startsWith("lyco");
+    const isAviation = (typeof window !== "undefined" && window.isAviationAsset)
+      ? window.isAviationAsset(asset)
+      : cls.startsWith("lyco") || cls.startsWith("conto") || cls === "rotax" || cls === "radial";
 
     const fe = get("Fe"), cr = get("Cr"), al = get("Al"), cu = get("Cu");
     const h2o = get("H2O"), fuel = get("Fuel"), visc = get("Visc100"), si = get("Si");
 
     const lines = [];
-    if (fe && cr && (fe.status !== "ok" || cr.status !== "ok") && isLyco) {
-      lines.push(`Iron (${fmt(fe.value)} ppm) and chromium (${fmt(cr.value)} ppm) are running together — the classic Lycoming cam/lifter wear signature, often tied to low recent utilization.`);
+    if (fe && cr && (fe.status !== "ok" || cr.status !== "ok")) {
+      lines.push(isAviation
+        ? `Iron (${fmt(fe.value)} ppm) and chromium (${fmt(cr.value)} ppm) are running together — the classic aviation cam/lifter wear signature, often tied to low recent utilization.`
+        : `Iron (${fmt(fe.value)} ppm) and chromium (${fmt(cr.value)} ppm) are elevated together on this ${(asset?.classLabel || "engine").toLowerCase()} — consistent with accelerated wear under the current duty cycle.`);
     } else if (fe && fe.status !== "ok") {
       lines.push(`Iron at ${fmt(fe.value)} ppm is ${fe.status === "alarm" ? "above the alarm threshold" : "elevated above the warn band"}.`);
     }
@@ -604,7 +608,8 @@
     const recommendations = [];
     if ((fe?.status !== "ok") || (cr?.status !== "ok") || (al?.status !== "ok")) {
       recommendations.push("Cut the oil filter at the next oil change and inspect for ferrous and non-ferrous metallic debris.");
-      if (isLyco) recommendations.push("Borescope the cam and lifters at next opportunity.");
+      if (isAviation) recommendations.push("Borescope the cam and lifters at next opportunity.");
+      else recommendations.push("Inspect bearing journals and cylinder liners at the next maintenance window.");
       recommendations.push("Resample at 10 hours rather than the usual interval so the trend can be tracked.");
     }
     if (h2o?.status !== "ok") recommendations.push("Run the engine to oil-temp on the next 2-3 flights to drive off condensation before resampling.");

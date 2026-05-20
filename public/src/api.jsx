@@ -68,6 +68,58 @@ const api = {
     if (!r.ok) throw new Error("createAssetClass failed: " + r.status);
     return r.json();
   },
+  // --- Oils CRUD ----------------------------------------------------
+  async createOil(payload) {
+    const r = await fetch("/api/oils", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("createOil failed: " + r.status));
+    }
+    return r.json();
+  },
+  async deleteOil(id) {
+    const r = await fetch(`/api/oils/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("deleteOil failed: " + r.status));
+    }
+  },
+
+  // --- Custom parameters CRUD --------------------------------------
+  async createParam(payload) {
+    const r = await fetch("/api/params-custom", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("createParam failed: " + r.status));
+    }
+    return r.json();
+  },
+  async deleteParam(code) {
+    const r = await fetch(`/api/params-custom/${encodeURIComponent(code)}`, { method: "DELETE" });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("deleteParam failed: " + r.status));
+    }
+  },
+
+  // --- AI Library --------------------------------------------------
+  async aiLibrary({ assetId, section, q, limit } = {}) {
+    const qs = new URLSearchParams();
+    if (assetId) qs.set("assetId", assetId);
+    if (section) qs.set("section", section);
+    if (q) qs.set("q", q);
+    if (limit) qs.set("limit", String(limit));
+    const r = await fetch("/api/ai/library?" + qs.toString());
+    if (!r.ok) throw new Error("aiLibrary failed: " + r.status);
+    return r.json();
+  },
+
   async deleteAssetClass(id) {
     const r = await fetch(`/api/asset-classes/${encodeURIComponent(id)}`, { method: "DELETE" });
     if (!r.ok) {
