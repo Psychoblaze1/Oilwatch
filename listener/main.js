@@ -186,7 +186,7 @@ app.whenReady().then(() => {
   win = new BrowserWindow({
     width: 1180, height: 760, minWidth: 880, minHeight: 560,
     title: "Lab88 Listener",
-    backgroundColor: "#0e0d0b",
+    backgroundColor: "#faf8f4",
     webPreferences: { preload: path.join(__dirname, "preload.js") },
   });
   win.removeMenu();
