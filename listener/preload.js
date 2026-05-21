@@ -17,6 +17,15 @@ contextBridge.exposeInMainWorld("listener", {
   removeQueueItem: (id) => ipcRenderer.invoke("queue:remove", id),
   clearQueue:      () => ipcRenderer.invoke("queue:clear"),
   tickNow:         () => ipcRenderer.invoke("queue:tick"),
+  // Console session
+  startSession:        (opts)  => ipcRenderer.invoke("session:start", opts),
+  stopSession:         ()      => ipcRenderer.invoke("session:stop"),
+  setSessionMeta:      (patch) => ipcRenderer.invoke("session:setMeta", patch),
+  setSessionIdentity:  (patch) => ipcRenderer.invoke("session:setIdentity", patch),
+  setSessionImage:     (slot, dataUrl) => ipcRenderer.invoke("session:setImage", { slot, dataUrl }),
+  clearSessionReading: (code)  => ipcRenderer.invoke("session:clearReading", code),
+  submitSession:       ()      => ipcRenderer.invoke("session:submit"),
+  fetchEngines:        ()      => ipcRenderer.invoke("lab88:engines"),
   onActivity: (fn) => ipcRenderer.on("activity", (_e, p) => fn(p)),
   onSnapshot: (fn) => ipcRenderer.on("snapshot", (_e, p) => fn(p)),
 });

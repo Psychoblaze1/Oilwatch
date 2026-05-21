@@ -7,7 +7,7 @@
 // filename hint matching the instrument's kind (e.g. "ir-vision").
 
 const { detectAndParse } = require("../parsers");
-const queue = require("../queue");
+const sink  = require("../sink");
 
 let SerialPortMod = null;
 try { SerialPortMod = require("serialport"); } catch (_) { /* not installed */ }
@@ -40,7 +40,7 @@ function start(instrument, { onActivity }) {
         onActivity({ level: "warn", instrumentId: instrument.id, text: `frame produced no readings (kind: ${kind})` });
         return;
       }
-      queue.enqueue({
+      const routed = sink.deliver({
         payload: {
           assetId: instrument.assetId || null,
           component: "Auto (instrument upload)",
@@ -53,7 +53,7 @@ function start(instrument, { onActivity }) {
         },
         source: instrument.id,
       });
-      onActivity({ level: "info", instrumentId: instrument.id, text: `serial frame → ${readings.length} readings` });
+      onActivity({ level: "info", instrumentId: instrument.id, text: `serial frame → ${readings.length} readings · ${routed.routedTo === "session" ? "added to active session" : "queued"}` });
     } catch (e) {
       onActivity({ level: "error", instrumentId: instrument.id, text: e.message });
     }

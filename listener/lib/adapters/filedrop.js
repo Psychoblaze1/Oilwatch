@@ -11,7 +11,7 @@ const fs = require("fs");
 const chokidar = require("chokidar");
 
 const { detectAndParse } = require("../parsers");
-const queue   = require("../queue");
+const sink    = require("../sink");
 
 function start(instrument, { onActivity }) {
   const dir = instrument.watchPath;
@@ -57,10 +57,10 @@ function start(instrument, { onActivity }) {
         flashPointFile: kind === "flash-point" ? dataUrl : null,
         additivesFile:  kind === "additives"   ? dataUrl : null,
       };
-      queue.enqueue({ payload, source: instrument.id });
+      const routed = sink.deliver({ payload, source: instrument.id });
       onActivity({
         level: "info", instrumentId: instrument.id,
-        text: `${path.basename(file)} → ${kind}: ${readings.length} readings · queued for upload`,
+        text: `${path.basename(file)} → ${kind}: ${readings.length} readings · ${routed.routedTo === "session" ? "added to active session" : "queued for upload"}`,
       });
     } catch (e) {
       onActivity({ level: "error", instrumentId: instrument.id,

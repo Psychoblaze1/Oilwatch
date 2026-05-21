@@ -15,6 +15,7 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const config   = require("./lib/config");
 const queue    = require("./lib/queue");
 const uploader = require("./lib/uploader");
+const session  = require("./lib/session");
 
 const filedrop  = require("./lib/adapters/filedrop");
 const serial    = require("./lib/adapters/serial");
@@ -57,6 +58,7 @@ function currentState() {
       [...running.entries()].map(([id, h]) => [id, { running: true, info: h.info ? h.info() : null, error: h.error || null }]),
     ),
     discovery: discovery.snapshot(),
+    session: session.get(),
   };
 }
 
@@ -130,6 +132,52 @@ ipcMain.handle("queue:remove", (_evt, id) => queue.remove(id));
 ipcMain.handle("queue:clear",  () => queue.clearAll());
 ipcMain.handle("queue:tick",   () => uploader.tick());
 
+// ---- Console session IPC --------------------------------------------
+ipcMain.handle("session:start", (_evt, opts) => {
+  const s = session.start(opts || {});
+  pushActivity({ level: "info", text: `console session started${opts?.sampleId ? " for " + opts.sampleId : ""}` });
+  pushSnapshot();
+  return s;
+});
+ipcMain.handle("session:stop", () => {
+  session.stop();
+  pushActivity({ level: "info", text: "console session cleared" });
+  pushSnapshot();
+  return null;
+});
+ipcMain.handle("session:setMeta", (_evt, patch) => { session.setMeta(patch || {}); pushSnapshot(); return session.get(); });
+ipcMain.handle("session:setIdentity", (_evt, patch) => { session.setIdentity(patch || {}); pushSnapshot(); return session.get(); });
+ipcMain.handle("session:setImage", (_evt, { slot, dataUrl }) => { session.setImage(slot, dataUrl); pushSnapshot(); return session.get(); });
+ipcMain.handle("session:clearReading", (_evt, code) => { session.clearReading(code); pushSnapshot(); return session.get(); });
+ipcMain.handle("session:submit", async () => {
+  const s = session.get();
+  if (!s) throw new Error("no active session");
+  const payload = session.toPayload();
+  const item = queue.enqueue({ payload, source: "console" });
+  pushActivity({ level: "info", text: `console session submitted (${payload.results?.length || 0} readings) → upload queue` });
+  // Trigger an immediate upload attempt so the operator sees fast feedback.
+  uploader.tick().catch(() => {});
+  session.stop();
+  pushSnapshot();
+  return { ok: true, itemId: item.id };
+});
+
+// Fetch engine roster from the Lab88 server so the Console can offer a
+// real engine picker. Best-effort — if the server is unreachable the
+// Console falls back to free-text engine-ID input.
+ipcMain.handle("lab88:engines", async () => {
+  const { serverUrl } = config.get();
+  if (!serverUrl) return { engines: [], error: "no server configured" };
+  try {
+    const r = await fetch(serverUrl.replace(/\/$/, "") + "/api/bootstrap");
+    if (!r.ok) return { engines: [], error: "bootstrap " + r.status };
+    const j = await r.json();
+    return { engines: j.engines || [], sites: j.sites || [] };
+  } catch (e) {
+    return { engines: [], error: e.message };
+  }
+});
+
 // ---- Lifecycle ------------------------------------------------------
 app.whenReady().then(() => {
   config.init(app.getPath("userData"));
@@ -145,6 +193,7 @@ app.whenReady().then(() => {
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
 
   queue.on("change", () => pushSnapshot());
+  session.on("change", () => pushSnapshot());
   uploader.on("uploaded", ({ item }) => pushActivity({
     level: "info", instrumentId: item.source, text: `uploaded ${item.payload.results?.length || 0} readings to Lab88`,
   }));

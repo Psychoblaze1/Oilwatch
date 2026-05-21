@@ -5,7 +5,7 @@
 
 const net = require("net");
 const { detectAndParse } = require("../parsers");
-const queue = require("../queue");
+const sink  = require("../sink");
 
 function start(instrument, { onActivity }) {
   const host = instrument.tcpHost || "0.0.0.0";
@@ -30,7 +30,7 @@ function start(instrument, { onActivity }) {
             onActivity({ level: "warn", instrumentId: instrument.id, text: `TCP frame produced no readings (kind: ${kind})` });
             continue;
           }
-          queue.enqueue({
+          const routed = sink.deliver({
             payload: {
               assetId: instrument.assetId || null,
               component: "Auto (instrument upload)",
@@ -43,7 +43,7 @@ function start(instrument, { onActivity }) {
             },
             source: instrument.id,
           });
-          onActivity({ level: "info", instrumentId: instrument.id, text: `tcp frame → ${readings.length} readings` });
+          onActivity({ level: "info", instrumentId: instrument.id, text: `tcp frame → ${readings.length} readings · ${routed.routedTo === "session" ? "added to active session" : "queued"}` });
         } catch (e) {
           onActivity({ level: "error", instrumentId: instrument.id, text: e.message });
         }
