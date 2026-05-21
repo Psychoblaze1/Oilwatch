@@ -207,7 +207,7 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
           <div className="card-body" style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "8px 14px", fontSize: 12.5 }}>
             <div className="muted">Barcode</div><div className="mono">{sample.barcode}</div>
             <div className="muted">Asset</div><div>{sample.assetName} · {sample.assetTag}</div>
-            <div className="muted">Component</div><div>{sample.component}</div>
+            <div className="muted">Sampling point</div><div>{sample.samplingPointName || sample.component}</div>
             <div className="muted">Site</div><div>{sample.siteName}</div>
             <div className="muted">Received</div><div className="mono">{window.fmtDate(sample.receivedAt)}</div>
             <div className="muted">Analyst</div><div>{sample.analyst}</div>

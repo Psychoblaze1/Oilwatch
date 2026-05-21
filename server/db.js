@@ -76,6 +76,21 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_samples_engine ON samples(engine_id);
   CREATE INDEX IF NOT EXISTS idx_samples_status ON samples(status);
 
+  -- Sampling points hang off an engine — they're the actual ports
+  -- where oil is drawn (Before Filter, After Filter, Sump Drain,
+  -- Bearing Inboard, etc.). Modeled as a separate table so a single
+  -- engine can be sampled at many places and so the dashboard tree can
+  -- show the TruVu-style Site → Asset → Component → Sampling Point
+  -- drilldown.
+  CREATE TABLE IF NOT EXISTS sampling_points (
+    id TEXT PRIMARY KEY,
+    engine_id TEXT NOT NULL REFERENCES engines(id),
+    name TEXT NOT NULL,
+    kind TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE INDEX IF NOT EXISTS idx_sampling_points_engine ON sampling_points(engine_id);
+
   CREATE TABLE IF NOT EXISTS alarms (
     id TEXT PRIMARY KEY,
     engine_id TEXT REFERENCES engines(id),
@@ -201,6 +216,7 @@ db.prepare(`
   if (!sampleCols.includes("additives_file"))   db.exec("ALTER TABLE samples ADD COLUMN additives_file TEXT");
   // Append-only analyst notes: a JSON array of {id, author, role, text, at}.
   if (!sampleCols.includes("notes_json"))       db.exec("ALTER TABLE samples ADD COLUMN notes_json TEXT");
+  if (!sampleCols.includes("sampling_point_id"))db.exec("ALTER TABLE samples ADD COLUMN sampling_point_id TEXT");
 
   const engineCols = db.prepare("PRAGMA table_info(engines)").all().map(c => c.name);
   if (!engineCols.includes("location_id"))   db.exec("ALTER TABLE engines ADD COLUMN location_id TEXT");
@@ -297,6 +313,15 @@ function getBootstrap() {
   const paramsCustom = db.prepare(
     "SELECT code, name, unit, method, section, dir, warn, alarm, target, min_v AS minV, max_v AS maxV FROM params_custom ORDER BY section, name"
   ).all();
+  const samplingPoints = db.prepare(
+    "SELECT id, engine_id AS engineId, name, kind, is_active AS isActive FROM sampling_points ORDER BY engine_id, name"
+  ).all().map(r => ({ ...r, isActive: !!r.isActive }));
+  const samplingPointsByEngine = new Map();
+  for (const sp of samplingPoints) {
+    if (!samplingPointsByEngine.has(sp.engineId)) samplingPointsByEngine.set(sp.engineId, []);
+    samplingPointsByEngine.get(sp.engineId).push(sp);
+  }
+  const samplingPointNameById = new Map(samplingPoints.map(sp => [sp.id, sp.name]));
   const engines = db.prepare(`
     SELECT e.id, e.tag, e.name, e.site, s.name AS siteName,
            e.location_id AS locationId, l.name AS locationName,
@@ -322,6 +347,7 @@ function getBootstrap() {
     runHours: r.runHours, criticality: r.criticality, health: r.health, code: r.code,
     dimensions: JSON.parse(r.dimensions_json || "[]"),
     lastSample: r.lastSample, nextDue: r.nextDue, rulDays: r.rulDays,
+    samplingPoints: samplingPointsByEngine.get(r.id) || [],
   }));
   const samples = db.prepare(`
     SELECT sa.id, sa.barcode, sa.engine_id AS assetId, e.name AS assetName, e.tag AS assetTag,
@@ -334,7 +360,8 @@ function getBootstrap() {
            sa.sample_type AS sampleType, sa.filter_patch AS filterPatch, sa.note,
            sa.ir_vision_data AS irVisionData, sa.flash_point_data AS flashPointData, sa.additives_data AS additivesData,
            sa.ir_vision_file AS irVisionFile, sa.flash_point_file AS flashPointFile, sa.additives_file AS additivesFile,
-           sa.notes_json AS notesJson
+           sa.notes_json AS notesJson,
+           sa.sampling_point_id AS samplingPointId
     FROM samples sa
     LEFT JOIN engines      e  ON sa.engine_id = e.id
     LEFT JOIN sites        si ON e.site = si.id
@@ -361,6 +388,8 @@ function getBootstrap() {
     flashPointFile:  r.flashPointFile || null,
     additivesFile:   r.additivesFile || null,
     notes:           JSON.parse(r.notesJson || "[]"),
+    samplingPointId:   r.samplingPointId || null,
+    samplingPointName: r.samplingPointId ? (samplingPointNameById.get(r.samplingPointId) || null) : null,
   }));
   const alarms = db.prepare(`
     SELECT a.id, a.engine_id AS assetId, e.name AS assetName, e.tag AS assetTag,
@@ -385,7 +414,29 @@ function getBootstrap() {
   }));
   const branding = getBranding();
   const currentUser = getCurrentUser();
-  return { sites, locations, assetTypes, assetClasses, oils, paramsCustom, engines, samples, alarms, limits, rules, branding, currentUser };
+  return { sites, locations, assetTypes, assetClasses, oils, paramsCustom, engines, samplingPoints, samples, alarms, limits, rules, branding, currentUser };
+}
+
+// --- Sampling Points CRUD ------------------------------------------
+function createSamplingPoint(engineId, { name, kind }) {
+  if (!engineId) throw new Error("engineId required");
+  if (!name || !String(name).trim()) throw new Error("name required");
+  const id = uid("sp");
+  db.prepare("INSERT INTO sampling_points (id, engine_id, name, kind, is_active) VALUES (?, ?, ?, ?, 1)")
+    .run(id, engineId, String(name).trim(), kind || null);
+  return { id, engineId, name: String(name).trim(), kind: kind || null, isActive: true };
+}
+function deleteSamplingPoint(id) {
+  const tx = db.transaction((id) => {
+    db.prepare("UPDATE samples SET sampling_point_id = NULL WHERE sampling_point_id = ?").run(id);
+    db.prepare("DELETE FROM sampling_points WHERE id = ?").run(id);
+  });
+  tx(id);
+}
+function listSamplingPoints(engineId) {
+  if (!engineId) return [];
+  return db.prepare("SELECT id, engine_id AS engineId, name, kind, is_active AS isActive FROM sampling_points WHERE engine_id = ? ORDER BY name").all(engineId)
+    .map(r => ({ ...r, isActive: !!r.isActive }));
 }
 
 // ---- Users --------------------------------------------------------
@@ -416,12 +467,12 @@ function saveBranding(b) {
 const insertSampleStmt = db.prepare(`
   INSERT INTO samples (id, barcode, engine_id, component, oil_name, received_at,
                        status, priority, score, code, analyst, flags_json, results_json,
-                       sample_type, filter_patch, note,
+                       sample_type, filter_patch, note, sampling_point_id,
                        ir_vision_data, flash_point_data, additives_data,
                        ir_vision_file, flash_point_file, additives_file)
   VALUES (@id, @barcode, @engine_id, @component, @oil_name, @received_at,
           @status, @priority, @score, @code, @analyst, @flags_json, @results_json,
-          @sample_type, @filter_patch, @note,
+          @sample_type, @filter_patch, @note, @sampling_point_id,
           @ir_vision_data, @flash_point_data, @additives_data,
           @ir_vision_file, @flash_point_file, @additives_file)
 `);
@@ -443,6 +494,7 @@ function createSample(s) {
     sample_type: s.sampleType || "piston-oil",
     filter_patch: s.filterPatch || null,
     note: s.note || null,
+    sampling_point_id: s.samplingPointId || null,
     ir_vision_data:   s.irVisionData ? JSON.stringify(s.irVisionData) : null,
     flash_point_data: typeof s.flashPointData === "number" ? s.flashPointData : null,
     additives_data:   s.additivesData ? JSON.stringify(s.additivesData) : null,
@@ -611,6 +663,7 @@ function deleteEngine(id) {
     db.prepare("DELETE FROM samples WHERE engine_id = ?").run(id);
     db.prepare("DELETE FROM alarms  WHERE engine_id = ?").run(id);
     db.prepare("UPDATE ai_responses SET asset_id = NULL WHERE asset_id = ?").run(id);
+    db.prepare("DELETE FROM sampling_points WHERE engine_id = ?").run(id);
     db.prepare("DELETE FROM engines WHERE id = ?").run(id);
   });
   tx(id);
@@ -638,6 +691,7 @@ function deleteSample(id) {
 const SAMPLE_PATCH_COLS = {
   analyst: "analyst", priority: "priority", component: "component",
   receivedAt: "received_at",
+  samplingPointId: "sampling_point_id",
 };
 function patchSample(id, patch) {
   if (!patch || typeof patch !== "object") return getSampleById(id);
@@ -881,6 +935,7 @@ module.exports = {
   createOil, deleteOil,
   createParam, deleteParam,
   createEngine,
+  createSamplingPoint, deleteSamplingPoint, listSamplingPoints,
   getBranding, saveBranding,
   // AI cache
   findCachedAIResponse, recordAIResponse, bumpAIReplay, listAIResponses,

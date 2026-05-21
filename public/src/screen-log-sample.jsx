@@ -33,12 +33,14 @@ function ScreenLogSample({ section, refresh, setRoute, focus, routeArg, consumeR
   const [locationId, setLocationId]   = React.useState("");
   const [assetTypeId, setAssetTypeId] = React.useState("");
   const [engineId, setEngineId]       = React.useState("");
+  const [samplingPointId, setSamplingPointId] = React.useState("");
   const [newEngineMode, setNewEngineMode]   = React.useState(false);
   const [newEngineName, setNewEngineName]   = React.useState("");
   const [newEngineTag, setNewEngineTag]     = React.useState("");
-  React.useEffect(() => { setLocationId(""); setAssetTypeId(""); setEngineId(""); }, [siteId]);
-  React.useEffect(() => { setAssetTypeId(""); setEngineId(""); }, [locationId]);
-  React.useEffect(() => { setEngineId(""); }, [assetTypeId]);
+  React.useEffect(() => { setLocationId(""); setAssetTypeId(""); setEngineId(""); setSamplingPointId(""); }, [siteId]);
+  React.useEffect(() => { setAssetTypeId(""); setEngineId(""); setSamplingPointId(""); }, [locationId]);
+  React.useEffect(() => { setEngineId(""); setSamplingPointId(""); }, [assetTypeId]);
+  React.useEffect(() => { setSamplingPointId(""); }, [engineId]);
 
   // Preselect path: when the user came in from Asset → "New sample",
   // hydrate the cascade with that engine's site/loc/type/id and skip
@@ -187,9 +189,13 @@ function ScreenLogSample({ section, refresh, setRoute, focus, routeArg, consumeR
       const addData   = addFile   ? Object.fromEntries(results.filter(r => r.source === "add").map(r => [r.code, r.value])) : null;
       const flashData = flashFile ? results.find(r => r.code === "FlashPt")?.value ?? null : null;
 
+      // Sampling-point name takes precedence over the free-text
+      // component field when one is registered + selected.
+      const samplingPoint = engine?.samplingPoints?.find(sp => sp.id === samplingPointId) || null;
       const sample = {
         assetId: useEngineId,
-        component: component || sampleType.defaultComponent,
+        samplingPointId: samplingPointId || null,
+        component: samplingPoint ? samplingPoint.name : (component || sampleType.defaultComponent),
         oil: (engine?.oil?.name) || newEngineTag || "—",
         receivedAt: new Date(drawnAt).toISOString(),
         status: anyResults ? "QC" : "DRAFT",
@@ -266,6 +272,7 @@ function ScreenLogSample({ section, refresh, setRoute, focus, routeArg, consumeR
           locationId={locationId} setLocationId={setLocationId}
           assetTypeId={assetTypeId} setAssetTypeId={setAssetTypeId}
           engineId={engineId} setEngineId={setEngineId}
+          samplingPointId={samplingPointId} setSamplingPointId={setSamplingPointId}
           newEngineMode={newEngineMode} setNewEngineMode={setNewEngineMode}
           newEngineName={newEngineName} setNewEngineName={setNewEngineName}
           newEngineTag={newEngineTag} setNewEngineTag={setNewEngineTag}
@@ -418,10 +425,12 @@ function StepSampleType({ sec, sectionSampleTypes, typeId, setTypeId }) {
 function StepEquipment(p) {
   const {
     siteId, setSiteId, locationId, setLocationId, assetTypeId, setAssetTypeId,
-    engineId, setEngineId, newEngineMode, setNewEngineMode,
+    engineId, setEngineId, samplingPointId, setSamplingPointId,
+    newEngineMode, setNewEngineMode,
     newEngineName, setNewEngineName, newEngineTag, setNewEngineTag,
     site, locations, assetTypes, engines, engine,
   } = p;
+  const samplingPoints = engine?.samplingPoints || [];
   return (
     <div className="card">
       <div className="card-head"><span className="card-title">Pick the equipment</span></div>
@@ -482,9 +491,23 @@ function StepEquipment(p) {
         )}
 
         {engine && !newEngineMode && (
-          <div style={{ gridColumn: "span 4", display: "flex", alignItems: "center", gap: 12, fontSize: 12, color: "var(--ink-2)" }}>
-            <Icon name="info" size={12} style={{ color: "var(--ink-3)" }}/>
-            Equipment context: {engine.oem || "—"} · {engine.classLabel || engine.assetTypeName || "—"} · {engine.runHours?.toLocaleString() || 0} hr · {engine.oil?.name || "—"}
+          <div style={{ gridColumn: "span 4", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignItems: "center" }}>
+            <div>
+              <div className="ls-label">Sampling point</div>
+              <select className="ls-input" value={samplingPointId} onChange={e => setSamplingPointId && setSamplingPointId(e.target.value)} disabled={samplingPoints.length === 0}>
+                <option value="">{samplingPoints.length === 0 ? "— No points registered (free text below) —" : "— Select a registered point —"}</option>
+                {samplingPoints.map(sp => <option key={sp.id} value={sp.id}>{sp.name}{sp.kind ? ` · ${sp.kind}` : ""}</option>)}
+              </select>
+              {samplingPoints.length === 0 && (
+                <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)", marginTop: 4 }}>
+                  Register sampling points on this engine under Manage to pick from a dropdown.
+                </div>
+              )}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12, color: "var(--ink-2)" }}>
+              <Icon name="info" size={12} style={{ color: "var(--ink-3)" }}/>
+              {engine.oem || "—"} · {engine.classLabel || engine.assetTypeName || "—"} · {engine.runHours?.toLocaleString() || 0} hr · {engine.oil?.name || "—"}
+            </div>
           </div>
         )}
       </div>

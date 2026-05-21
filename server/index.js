@@ -129,6 +129,14 @@ app.delete("/api/engines/:id", (req, res) => {
   try { dbApi.deleteEngine(req.params.id); res.json({ ok: true }); }
   catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
+app.post("/api/engines/:id/sampling-points", (req, res) => {
+  try { res.json(dbApi.createSamplingPoint(req.params.id, req.body || {})); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.delete("/api/sampling-points/:id", (req, res) => {
+  try { dbApi.deleteSamplingPoint(req.params.id); res.json({ ok: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 // ---- Server-side sample re-evaluation -------------------------------
 // Mirrors window.resolveResults / window.dieselVerdict semantics so a
@@ -273,6 +281,7 @@ app.post("/api/samples", (req, res) => {
     sampleType: s.sampleType || "piston-oil",
     filterPatch: s.filterPatch || null,
     note: s.note || null,
+    samplingPointId: s.samplingPointId || null,
     irVisionData:   s.irVisionData   || null,
     flashPointData: typeof s.flashPointData === "number" ? s.flashPointData : null,
     additivesData:  s.additivesData  || null,

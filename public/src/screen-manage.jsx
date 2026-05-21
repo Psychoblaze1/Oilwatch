@@ -647,6 +647,8 @@ function isAviationClass(id) { return id && AVIATION_CLASS_IDS.has(id); }
 // row compact and reveals an editable strip when the user clicks Edit.
 function EngineRow({ engine, canEdit, refreshAll }) {
   const [editing, setEditing] = React.useState(false);
+  const [expanded, setExpanded] = React.useState(false);
+  const samplingPoints = engine.samplingPoints || [];
   const [draft, setDraft] = React.useState({
     name: engine.name || "", tag: engine.tag || "", oem: engine.oem || "",
     oilName: engine.oil?.name || "", runHours: engine.runHours ?? 0,
@@ -681,24 +683,39 @@ function EngineRow({ engine, canEdit, refreshAll }) {
   };
   if (!editing) {
     return (
-      <tr>
-        <td>{engine.name}</td>
-        <td className="mono t-id">{engine.tag || "—"}</td>
-        <td className="t-muted">{engine.locationName || "—"}</td>
-        <td className="t-muted">{engine.assetTypeName || engine.classLabel || "—"}</td>
-        <td className="t-muted">{engine.oem || "—"}</td>
-        <td className="t-muted">{engine.oil?.name || "—"}</td>
-        <td className="mono t-muted">{(engine.runHours || 0).toLocaleString()}</td>
-        <td><Tag tone="accent">{engine.criticality || "C"}</Tag></td>
-        <td style={{ textAlign: "right" }}>
-          {canEdit && (
-            <>
-              <button className="btn btn-sm btn-ghost" onClick={() => setEditing(true)} aria-label="Edit equipment"><Icon name="settings" size={12}/></button>
-              <button className="btn btn-sm btn-ghost" onClick={del} aria-label="Delete equipment"><Icon name="trash" size={12}/></button>
-            </>
-          )}
-        </td>
-      </tr>
+      <>
+        <tr>
+          <td>
+            <button className="btn btn-sm btn-ghost" onClick={() => setExpanded(v => !v)} aria-label="Toggle sampling points" style={{ marginRight: 4 }}>
+              <Icon name={expanded ? "chevron-dn" : "chevron-r"} size={11}/>
+            </button>
+            {engine.name}
+            {samplingPoints.length > 0 && <span className="mono" style={{ marginLeft: 6, fontSize: 10.5, color: "var(--ink-3)" }}>{samplingPoints.length} pt{samplingPoints.length === 1 ? "" : "s"}</span>}
+          </td>
+          <td className="mono t-id">{engine.tag || "—"}</td>
+          <td className="t-muted">{engine.locationName || "—"}</td>
+          <td className="t-muted">{engine.assetTypeName || engine.classLabel || "—"}</td>
+          <td className="t-muted">{engine.oem || "—"}</td>
+          <td className="t-muted">{engine.oil?.name || "—"}</td>
+          <td className="mono t-muted">{(engine.runHours || 0).toLocaleString()}</td>
+          <td><Tag tone="accent">{engine.criticality || "C"}</Tag></td>
+          <td style={{ textAlign: "right" }}>
+            {canEdit && (
+              <>
+                <button className="btn btn-sm btn-ghost" onClick={() => setEditing(true)} aria-label="Edit equipment"><Icon name="settings" size={12}/></button>
+                <button className="btn btn-sm btn-ghost" onClick={del} aria-label="Delete equipment"><Icon name="trash" size={12}/></button>
+              </>
+            )}
+          </td>
+        </tr>
+        {expanded && (
+          <tr>
+            <td colSpan={9} style={{ background: "var(--bg-sunken)", padding: "8px 14px" }}>
+              <SamplingPointEditor engine={engine} canEdit={canEdit} refreshAll={refreshAll} />
+            </td>
+          </tr>
+        )}
+      </>
     );
   }
   return (
@@ -720,6 +737,78 @@ function EngineRow({ engine, canEdit, refreshAll }) {
         <button className="btn btn-sm btn-ghost" onClick={() => setEditing(false)}>Cancel</button>
       </td>
     </tr>
+  );
+}
+
+// Inline editor for an engine's sampling points (Before Filter, After
+// Filter, Sump Drain, etc.). Rendered under the engine row when the
+// caret is expanded. Operators register points here once and the Log
+// Sample wizard offers them in a dropdown for every future sample.
+function SamplingPointEditor({ engine, canEdit, refreshAll }) {
+  const points = engine.samplingPoints || [];
+  const [draft, setDraft] = React.useState({ name: "", kind: "" });
+  const add = async () => {
+    if (!draft.name.trim()) return;
+    try { await window.api.createSamplingPoint(engine.id, { name: draft.name.trim(), kind: draft.kind.trim() || null }); }
+    catch (e) { alert(e.message); return; }
+    setDraft({ name: "", kind: "" });
+    await refreshAll();
+  };
+  const del = async (sp) => {
+    if (!confirm(`Delete sampling point "${sp.name}"? Samples already drawn from it keep the link as free text.`)) return;
+    try { await window.api.deleteSamplingPoint(sp.id); await refreshAll(); }
+    catch (e) { alert(e.message); }
+  };
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <div className="mono" style={{ fontSize: 10.5, letterSpacing: 0.1, color: "var(--ink-3)" }}>
+        SAMPLING POINTS · {points.length} REGISTERED
+      </div>
+      {points.length === 0
+        ? <div className="muted" style={{ fontSize: 12 }}>No sampling points yet. Add one below — operators will see it in the Log Sample wizard.</div>
+        : (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {points.map(sp => (
+              <span key={sp.id} className="mono" style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                padding: "4px 10px", borderRadius: 999,
+                background: "var(--bg-elev)", border: "1px solid var(--line)",
+                fontSize: 11.5,
+              }}>
+                <span>{sp.name}</span>
+                {sp.kind && <span style={{ color: "var(--ink-3)" }}>· {sp.kind}</span>}
+                {canEdit && <button className="btn btn-sm btn-ghost" style={{ padding: "0 2px", marginLeft: 2 }} onClick={() => del(sp)} aria-label={`Delete ${sp.name}`}><Icon name="close" size={10}/></button>}
+              </span>
+            ))}
+          </div>
+        )}
+      {canEdit && (
+        <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+          <div>
+            <div className="mng-label">Point name</div>
+            <input className="mng-input" placeholder="Before Filter / Sump Drain"
+                   value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })}
+                   onKeyDown={e => e.key === "Enter" && add()} />
+          </div>
+          <div>
+            <div className="mng-label">Kind (optional)</div>
+            <select className="mng-input" value={draft.kind} onChange={e => setDraft({ ...draft, kind: e.target.value })}>
+              <option value="">—</option>
+              <option value="filter">Filter</option>
+              <option value="sump">Sump</option>
+              <option value="cooler">Cooler</option>
+              <option value="bearing">Bearing</option>
+              <option value="reservoir">Reservoir</option>
+              <option value="drain">Drain</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={add} disabled={!draft.name.trim()}>
+            <Icon name="plus" size={12}/> Add point
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

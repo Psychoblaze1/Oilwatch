@@ -19,6 +19,7 @@ const Icon = ({ name, size = 16, stroke = 1.6, ...rest }) => {
     case "search":     return (<svg {...common}><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>);
     case "send":       return (<svg {...common}><path d="M3 11L21 3l-7 18-3-8z"/></svg>);
     case "chevron":    return (<svg {...common}><path d="M6 9l6 6 6-6"/></svg>);
+    case "chevron-dn": return (<svg {...common}><path d="M6 9l6 6 6-6"/></svg>);
     case "chevron-r":  return (<svg {...common}><path d="M9 6l6 6-6 6"/></svg>);
     case "chevron-l":  return (<svg {...common}><path d="M15 6l-6 6 6 6"/></svg>);
     case "close":      return (<svg {...common}><path d="M6 6l12 12M6 18L18 6"/></svg>);

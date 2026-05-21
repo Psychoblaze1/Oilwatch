@@ -153,6 +153,24 @@ const api = {
     }
     return r.json();
   },
+  async createSamplingPoint(engineId, payload) {
+    const r = await fetch(`/api/engines/${encodeURIComponent(engineId)}/sampling-points`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("createSamplingPoint failed: " + r.status));
+    }
+    return r.json();
+  },
+  async deleteSamplingPoint(id) {
+    const r = await fetch(`/api/sampling-points/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("deleteSamplingPoint failed: " + r.status));
+    }
+  },
   async deleteEngine(id) {
     const r = await fetch(`/api/engines/${encodeURIComponent(id)}`, { method: "DELETE" });
     if (!r.ok) {
