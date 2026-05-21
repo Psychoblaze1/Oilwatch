@@ -56,7 +56,11 @@ app.post("/api/sites/:siteId/locations", (req, res) => {
 });
 app.delete("/api/locations/:id", (req, res) => {
   try { dbApi.deleteLocation(req.params.id); res.json({ ok: true }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+app.delete("/api/sites/:id", (req, res) => {
+  try { dbApi.deleteSite(req.params.id); res.json({ ok: true }); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 app.post("/api/sites/:siteId/asset-types", (req, res) => {
   const { name, locationId } = req.body || {};
@@ -66,7 +70,7 @@ app.post("/api/sites/:siteId/asset-types", (req, res) => {
 });
 app.delete("/api/asset-types/:id", (req, res) => {
   try { dbApi.deleteAssetType(req.params.id); res.json({ ok: true }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 app.post("/api/asset-classes", (req, res) => {
   const { label, section } = req.body || {};
@@ -117,6 +121,105 @@ app.post("/api/engines", (req, res) => {
   try { res.json(dbApi.createEngine(e)); }
   catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
+app.put("/api/engines/:id", (req, res) => {
+  try { dbApi.updateEngine(req.params.id, req.body || {}); res.json({ ok: true }); }
+  catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+app.delete("/api/engines/:id", (req, res) => {
+  try { dbApi.deleteEngine(req.params.id); res.json({ ok: true }); }
+  catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
+// ---- Server-side sample re-evaluation -------------------------------
+// Mirrors window.resolveResults / window.dieselVerdict semantics so a
+// user can re-grade an existing sample after the limits change. Score
+// is a simple fraction-of-OK heuristic that matches the visible chip
+// counts on the sample detail screen.
+const AVIATION_PARAM_DEFS = {
+  Fe:      { warn: 35,    alarm: 65    },
+  Cr:      { warn: 5,     alarm: 10    },
+  Al:      { warn: 8,     alarm: 15    },
+  Cu:      { warn: 15,    alarm: 35    },
+  Pb:      { warn: 8000,  alarm: 12000 },
+  Ni:      { warn: 3,     alarm: 6     },
+  Si:      { warn: 15,    alarm: 30    },
+  Visc100: { target: 19,  kind: "pct", warnPct: 10, alarmPct: 15 },
+  H2O:     { warn: 200,   alarm: 500   },
+  Fuel:    { warn: 2,     alarm: 4     },
+};
+const DIESEL_PARAM_DEFS = {
+  FlashPt:   { dir: "min",   min: 55 },
+  WaterCt:   { dir: "max",   max: 350 },
+  TotalContam:{dir: "max",   max: 24 },
+  Sulphur:   { dir: "max",   max: 50 },
+  Density20: { dir: "min",   min: 800 },
+  T90Dist:   { dir: "max",   max: 362 },
+  KinVisc40: { dir: "range", min: 2.0, max: 5.3 },
+};
+function loadLimitsFor(scope) {
+  const rows = dbApi.db.prepare(
+    "SELECT param_code, warn, alarm, target, min_v AS minV, max_v AS maxV, dir FROM limits WHERE scope = ?"
+  ).all(scope || "all");
+  const all = dbApi.db.prepare(
+    "SELECT param_code, warn, alarm, target, min_v AS minV, max_v AS maxV, dir FROM limits WHERE scope = 'all'"
+  ).all();
+  const map = {};
+  for (const r of all)  map[r.param_code] = r;
+  for (const r of rows) map[r.param_code] = r;
+  return map;
+}
+function reevaluateSampleServerSide(id) {
+  const s = dbApi.getSampleById(id);
+  if (!s) return null;
+  const raw = JSON.parse(s.results_json || "null");
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { id, score: s.score, code: s.code, flags: JSON.parse(s.flags_json || "[]") };
+  }
+  const eng = s.engine_id ? dbApi.getEngineById(s.engine_id) : null;
+  const scope = (eng && eng.class) || "all";
+  const limits = loadLimitsFor(scope);
+
+  let ok = 0, warn = 0, alarm = 0;
+  const flags = [];
+  for (const r of raw) {
+    if (r.value == null || r.value === "" || (typeof r.value === "number" && isNaN(r.value))) continue;
+    const v = Number(r.value);
+    const lim = limits[r.code] || {};
+    const av = AVIATION_PARAM_DEFS[r.code];
+    const dv = DIESEL_PARAM_DEFS[r.code];
+    let status = null;
+    if (av) {
+      const W = lim.warn   ?? av.warn;
+      const A = lim.alarm  ?? av.alarm;
+      const T = lim.target ?? av.target;
+      if (av.kind === "pct" && T != null && isFinite(v)) {
+        const dev = Math.abs(v - T) / T * 100;
+        status = dev >= (av.alarmPct ?? 15) ? "alarm" : dev >= (av.warnPct ?? 10) ? "warn" : "ok";
+      } else if (typeof W === "number" && typeof A === "number" && isFinite(v)) {
+        status = v >= A ? "alarm" : v >= W ? "warn" : "ok";
+      }
+    } else if (dv || lim.dir) {
+      const dir = lim.dir || dv?.dir;
+      const min = lim.minV ?? dv?.min;
+      const max = lim.maxV ?? dv?.max;
+      if (dir === "min"   && isFinite(v) && min != null) status = v >= min ? "ok" : "alarm";
+      if (dir === "max"   && isFinite(v) && max != null) status = v <= max ? "ok" : "alarm";
+      if (dir === "range" && isFinite(v) && min != null && max != null)
+        status = (v >= min && v <= max) ? "ok" : "alarm";
+    }
+    if (status === "ok") ok++;
+    else if (status === "warn")  { warn++; flags.push(r.code); }
+    else if (status === "alarm") { alarm++; flags.push(r.code); }
+  }
+  const total = ok + warn + alarm;
+  let score = 100;
+  if (total > 0) score = Math.round(100 * (1 - (alarm / total) - 0.5 * (warn / total)));
+  score = Math.max(0, Math.min(100, score));
+  const code = score >= 75 ? 1 : score >= 50 ? 2 : score >= 25 ? 3 : 4;
+  dbApi.db.prepare("UPDATE samples SET score = ?, code = ?, flags_json = ? WHERE id = ?")
+    .run(score, code, JSON.stringify(flags), id);
+  return { id, score, code, flags };
+}
 
 // ---- Instrument-file parsers ----------------------------------------
 // Each accepts a CSV string in `csv` and returns { readings: [{code, value}] }.
@@ -193,6 +296,29 @@ app.put("/api/samples/:id", (req, res) => {
   if (!status) return res.status(400).json({ error: "status required" });
   dbApi.setSampleStatus(req.params.id, status);
   res.json({ ok: true });
+});
+app.delete("/api/samples/:id", (req, res) => {
+  try { dbApi.deleteSample(req.params.id); res.json({ ok: true }); }
+  catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+app.patch("/api/samples/:id/meta", (req, res) => {
+  try { const r = dbApi.patchSample(req.params.id, req.body || {}); res.json({ ok: true, sample: r }); }
+  catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+app.post("/api/samples/:id/notes", (req, res) => {
+  const { text, author, role } = req.body || {};
+  if (!text || !text.trim()) return res.status(400).json({ error: "text required" });
+  try {
+    const notes = dbApi.addSampleNote(req.params.id, { text: text.trim(), author, role });
+    res.json({ ok: true, notes });
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+app.post("/api/samples/:id/reevaluate", (req, res) => {
+  try {
+    const result = reevaluateSampleServerSide(req.params.id);
+    if (!result) return res.status(404).json({ error: "sample not found" });
+    res.json(result);
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
 // ---- Alarms ----------------------------------------------------------

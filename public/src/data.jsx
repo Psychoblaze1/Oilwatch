@@ -564,6 +564,40 @@ function makeTrend(asset, paramKey) {
   };
 }
 
+// Cheap statistical summary of a trend (one or more parameter codes)
+// for an engine. Returns per-code { n, mean, sigma, slopePerSample,
+// latestZ }. Used by the asset-detail anomaly banner so the AI hint
+// only renders when there's actually something to flag.
+function summariseTrend(asset, codes) {
+  const out = {};
+  for (const code of (codes || [])) {
+    const t = makeTrend(asset, code);
+    const vals = (t.points || []).map(p => Number(p.value)).filter(v => isFinite(v));
+    const n = vals.length;
+    if (n === 0) { out[code] = { n: 0 }; continue; }
+    const mean = vals.reduce((a, b) => a + b, 0) / n;
+    const variance = n > 1 ? vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1) : 0;
+    const sigma = Math.sqrt(variance);
+    // Simple slope: (last - first) / (n - 1).
+    const slopePerSample = n > 1 ? (vals[n - 1] - vals[0]) / (n - 1) : 0;
+    const latestZ = sigma > 0 ? (vals[n - 1] - mean) / sigma : 0;
+    out[code] = { n, mean, sigma, slopePerSample, latestZ, latest: vals[n - 1] };
+  }
+  return out;
+}
+
+// Span (in weeks) covered by an asset's trend, from earliest to
+// latest sample. Returns 0 for empty / single-point series.
+function trendWeeks(asset) {
+  const series = window.SAMPLES
+    .filter(s => s.assetId === asset.id && s.receivedAt)
+    .map(s => +new Date(s.receivedAt))
+    .sort((a, b) => a - b);
+  if (series.length < 2) return 0;
+  const ms = series[series.length - 1] - series[0];
+  return Math.max(1, Math.round(ms / (1000 * 60 * 60 * 24 * 7)));
+}
+
 // Rule evaluator (pure, mirrors server semantics).
 function evalRule(rule, results) {
   if (!rule.enabled) return { ...rule, triggered: false, reasons: [] };
@@ -600,7 +634,7 @@ Object.assign(window, {
   SECTIONS, ROLES, COND, PARAM_DEFS, DIESEL_PARAMS, INSTRUMENTS, SAMPLE_TYPES,
   allOilParams, allDieselParams,
   scoreToCode, fmtDate, fmtShortDate, fmtTime,
-  resolveResults, makeTestResults, makeTrend, evalRule,
+  resolveResults, makeTestResults, makeTrend, summariseTrend, trendWeeks, evalRule,
   getLimits, setLimit, resetLimits,
   getRules, saveRule, deleteRule, nextRuleId,
   fleetCounts, recentPublished,

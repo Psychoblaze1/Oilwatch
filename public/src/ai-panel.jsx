@@ -30,6 +30,13 @@ function AIPanel({ onClose, focus, context }) {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, pending]);
 
+  // Abort any in-flight stream when the panel unmounts (close button,
+  // route change). Without this the SSE reader keeps running after the
+  // component is gone and tries to setState on a dead tree.
+  React.useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
+
   // Collapse the design's structured messages into the user/assistant
   // pairs Anthropic's /v1/messages expects.
   const toAPI = (history, nextUser) => {
@@ -223,7 +230,7 @@ function AIPanel({ onClose, focus, context }) {
         <div className="ai-head-mark"><Icon name="ai" size={15}/></div>
         <div>
           <div className="ai-head-title">Claude</div>
-          <div className="ai-head-sub">SONNET · GROUNDED · 1,243 SAMPLES</div>
+          <div className="ai-head-sub">SONNET · GROUNDED · {window.SAMPLES.length.toLocaleString()} SAMPLES</div>
         </div>
         <button className="icon-btn" style={{ marginLeft: "auto" }} onClick={onClose} title="Close"><Icon name="close" size={14}/></button>
       </div>

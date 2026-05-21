@@ -35,7 +35,6 @@ function ScreenDashboard({ siteFilter, section, setRoute, focus, openAI }) {
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost" onClick={() => window.exportPDF("lab88-fleet-overview.pdf")}><Icon name="download" size={14}/> Export PDF</button>
-          <button className="btn btn-ghost"><Icon name="filter" size={14}/> Filters</button>
           <button className="btn btn-primary" onClick={openAI}><Icon name="ai" size={14}/> Ask AI</button>
         </div>
       </div>
@@ -91,7 +90,6 @@ function ScreenDashboard({ siteFilter, section, setRoute, focus, openAI }) {
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               {worst && <button className="btn btn-sm" onClick={() => focus(worst.id)}>Open {worst.name.split(" · ")[0]}</button>}
-              <button className="btn btn-sm btn-ghost">Schedule resample</button>
               <button className="btn btn-sm btn-ghost" onClick={openAI}>Ask follow-up →</button>
             </div>
           </div>

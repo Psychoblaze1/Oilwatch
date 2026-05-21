@@ -35,6 +35,10 @@ function App() {
   const [role, setRole]       = React.useState(() => (window.CURRENT_USER && window.CURRENT_USER.role) || "ANALYST");
   const [aiOpen, setAIOpen]   = React.useState(false);
   const [focused, setFocused] = React.useState(null);
+  // Optional one-shot payload passed alongside `setRoute(name, payload)`.
+  // Currently used by Asset → "New sample" to pre-select the engine in
+  // the Log Sample wizard. Consumed (and cleared) by the target screen.
+  const [routeArg, setRouteArg] = React.useState(null);
 
   // Bootstrap fleet data from /api/bootstrap on mount.
   React.useEffect(() => {
@@ -75,7 +79,8 @@ function App() {
   // mutations also patch window arrays locally.
   const refresh = React.useCallback(() => force(), []);
 
-  const setRoute = (r) => { setFocused(null); setRouteState(r); };
+  const setRoute = (r, arg) => { setFocused(null); setRouteArg(arg || null); setRouteState(r); };
+  const consumeRouteArg = () => { const v = routeArg; setRouteArg(null); return v; };
   const focus = (id, kind = "asset") => {
     setFocused({ id, kind });
     setRouteState(kind === "sample" ? "sample" : "asset");
@@ -120,16 +125,16 @@ function App() {
           {route === "samples"    && <ScreenSamples    siteFilter={siteFilter} section={section} focus={focus} setRoute={setRoute} />}
           {route === "lifecycle"  && <ScreenLifecycle  siteFilter={siteFilter} section={section} focus={focus} role={role} refresh={refresh} />}
           {route === "assets"     && <ScreenAssets     siteFilter={siteFilter} section={section} focus={focus} />}
-          {route === "alarms"     && <ScreenAlarms     siteFilter={siteFilter} section={section} focus={focus} />}
+          {route === "alarms"     && <ScreenAlarms     siteFilter={siteFilter} section={section} focus={focus} openAI={() => setAIOpen(true)} />}
           {route === "ai"         && <ScreenAI         focus={focus} openAI={() => setAIOpen(true)} />}
           {route === "ai-library" && <ScreenAILibrary  section={section} focus={focus} />}
           {route === "limits"     && <ScreenLimits     role={role} section={section} />}
           {route === "rules"      && <ScreenRules      role={role} section={section} />}
           {route === "manage"     && <ScreenManage     role={role} section={section} refresh={refresh} />}
-          {route === "log-sample" && <ScreenLogSample  section={section} refresh={refresh} setRoute={setRoute} focus={focus} />}
+          {route === "log-sample" && <ScreenLogSample  section={section} refresh={refresh} setRoute={setRoute} focus={focus} routeArg={routeArg} consumeRouteArg={consumeRouteArg} />}
           {route === "ref"        && <ScreenRef />}
           {route === "sample"     && <ScreenSample     sampleId={focused?.id} back={back} openAI={() => setAIOpen(true)} role={role} refresh={refresh}/>}
-          {route === "asset"      && <ScreenAsset      assetId={focused?.id}  back={back} focus={focus} openAI={() => setAIOpen(true)} setRoute={setRoute} />}
+          {route === "asset"      && <ScreenAsset      assetId={focused?.id}  back={back} focus={focus} openAI={() => setAIOpen(true)} setRoute={setRoute} role={role} refresh={refresh} />}
         </main>
         {aiOpen && <AIPanel onClose={() => setAIOpen(false)} focus={focus} context={{ route, role, focused, siteFilter }} />}
       </div>

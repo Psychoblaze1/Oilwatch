@@ -11,7 +11,7 @@
 // raw file contents so a reviewer can re-process if needed.
 // ============================================================
 
-function ScreenLogSample({ section, refresh, setRoute, focus }) {
+function ScreenLogSample({ section, refresh, setRoute, focus, routeArg, consumeRouteArg }) {
   const sec = section || "oil";
   const today = new Date().toISOString().slice(0, 10);
   const sectionSampleTypes = window.getSampleTypesForSection(sec);
@@ -39,6 +39,23 @@ function ScreenLogSample({ section, refresh, setRoute, focus }) {
   React.useEffect(() => { setLocationId(""); setAssetTypeId(""); setEngineId(""); }, [siteId]);
   React.useEffect(() => { setAssetTypeId(""); setEngineId(""); }, [locationId]);
   React.useEffect(() => { setEngineId(""); }, [assetTypeId]);
+
+  // Preselect path: when the user came in from Asset → "New sample",
+  // hydrate the cascade with that engine's site/loc/type/id and skip
+  // straight to the data-entry step. Run once on mount.
+  React.useEffect(() => {
+    const arg = consumeRouteArg ? consumeRouteArg() : (routeArg || null);
+    if (!arg || !arg.preselectAssetId) return;
+    const eng = window.ASSETS.find(a => a.id === arg.preselectAssetId);
+    if (!eng) return;
+    setSiteId(eng.site || "");
+    setTimeout(() => {
+      setLocationId(eng.locationId || "");
+      setAssetTypeId(eng.assetTypeId || "");
+      setEngineId(eng.id);
+      setStep(2);
+    }, 0);
+  }, []);
 
   const site       = window.SITES.find(s => s.id === siteId);
   const locations  = siteId ? window.getLocationsForSite(siteId) : [];

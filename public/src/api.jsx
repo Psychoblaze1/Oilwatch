@@ -48,7 +48,11 @@ const api = {
     return r.json();
   },
   async deleteLocation(id) {
-    await fetch(`/api/locations/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const r = await fetch(`/api/locations/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("deleteLocation failed: " + r.status));
+    }
   },
   async createAssetType(siteId, locationId, name) {
     const r = await fetch(`/api/sites/${encodeURIComponent(siteId)}/asset-types`, {
@@ -58,7 +62,11 @@ const api = {
     return r.json();
   },
   async deleteAssetType(id) {
-    await fetch(`/api/asset-types/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const r = await fetch(`/api/asset-types/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("deleteAssetType failed: " + r.status));
+    }
   },
   async createAssetClass(payload) {
     const r = await fetch("/api/asset-classes", {
@@ -132,6 +140,68 @@ const api = {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
     });
+    return r.json();
+  },
+  async updateEngine(id, patch) {
+    const r = await fetch(`/api/engines/${encodeURIComponent(id)}`, {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("updateEngine failed: " + r.status));
+    }
+    return r.json();
+  },
+  async deleteEngine(id) {
+    const r = await fetch(`/api/engines/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("deleteEngine failed: " + r.status));
+    }
+  },
+  async deleteSite(id) {
+    const r = await fetch(`/api/sites/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("deleteSite failed: " + r.status));
+    }
+  },
+  async deleteSample(id) {
+    const r = await fetch(`/api/samples/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("deleteSample failed: " + r.status));
+    }
+  },
+  async patchSample(id, patch) {
+    const r = await fetch(`/api/samples/${encodeURIComponent(id)}/meta`, {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("patchSample failed: " + r.status));
+    }
+    return r.json();
+  },
+  async reevaluateSample(id) {
+    const r = await fetch(`/api/samples/${encodeURIComponent(id)}/reevaluate`, { method: "POST" });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("reevaluateSample failed: " + r.status));
+    }
+    return r.json();
+  },
+  async addSampleNote(id, payload) {
+    const r = await fetch(`/api/samples/${encodeURIComponent(id)}/notes`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || ("addSampleNote failed: " + r.status));
+    }
     return r.json();
   },
 

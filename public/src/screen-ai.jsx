@@ -22,7 +22,6 @@ function ScreenAI({ focus, openAI }) {
         </div>
         <div className="page-actions">
           <Tag tone="accent">claude-sonnet-4-6</Tag>
-          <button className="btn btn-ghost"><Icon name="settings" size={14}/> Prompts</button>
           <button className="btn btn-primary" onClick={openAI}><Icon name="plus" size={14}/> New chat</button>
         </div>
       </div>

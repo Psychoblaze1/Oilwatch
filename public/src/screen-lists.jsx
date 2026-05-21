@@ -30,7 +30,6 @@ function ScreenSamples({ siteFilter, section, focus, setRoute }) {
           <div className="page-sub">{list.length} samples · 28-day window</div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost"><Icon name="filter" size={14}/> Filters</button>
           <button className="btn btn-ghost" onClick={() => window.exportCSV(
             list.map(s => ({
               sample: s.id, asset: s.assetName, tag: s.assetTag, site: s.siteName,
@@ -105,10 +104,12 @@ function SampleTypeTag({ sample }) {
 function ScreenAssets({ siteFilter, section, focus }) {
   const sec = section || "oil";
   const [cls, setCls] = React.useState("ALL");
+  const [crit, setCrit] = React.useState("ALL");
   const [q, setQ] = React.useState("");
   let list = (siteFilter === "all" ? window.ASSETS : window.ASSETS.filter(a => a.site === siteFilter))
     .filter(a => window.getSectionForAsset(a) === sec);
   if (cls !== "ALL") list = list.filter(a => a.class === cls);
+  if (crit !== "ALL") list = list.filter(a => a.criticality === crit);
   const sectionClasses = window.getAssetClassesForSection(sec);
   if (q) {
     const ql = q.toLowerCase();
@@ -124,7 +125,16 @@ function ScreenAssets({ siteFilter, section, focus }) {
           <div className="page-sub">{list.length} assets · sorted by health, worst first</div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost"><Icon name="filter" size={14}/> Criticality</button>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Icon name="filter" size={14}/>
+            <select className="btn btn-ghost" style={{ padding: "6px 10px" }}
+                    value={crit} onChange={e => setCrit(e.target.value)} aria-label="Filter by criticality">
+              <option value="ALL">All criticalities</option>
+              <option value="A">A · most critical</option>
+              <option value="B">B</option>
+              <option value="C">C</option>
+            </select>
+          </label>
           <button className="btn btn-ghost" onClick={() => window.exportCSV(
             list.map(a => ({
               asset: a.name, tag: a.tag, class: a.classLabel, site: a.siteName,
@@ -179,7 +189,7 @@ function ScreenAssets({ siteFilter, section, focus }) {
   );
 }
 
-function ScreenAlarms({ siteFilter, section, focus }) {
+function ScreenAlarms({ siteFilter, section, focus, openAI }) {
   const sec = section || "oil";
   const assets = (siteFilter === "all" ? window.ASSETS : window.ASSETS.filter(a => a.site === siteFilter))
     .filter(a => window.getSectionForAsset(a) === sec);
@@ -211,13 +221,21 @@ function ScreenAlarms({ siteFilter, section, focus }) {
           <div className="page-sub">{alarms.length} active · {alarms.filter(a => !a.acknowledged).length} unacknowledged</div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost" onClick={ackAll}>Acknowledge all</button>
-          <button className="btn btn-primary"><Icon name="ai" size={14}/> AI triage</button>
+          <button className="btn btn-ghost" onClick={ackAll} disabled={alarms.length === 0}>Acknowledge all</button>
+          <button className="btn btn-primary" onClick={openAI} disabled={alarms.length === 0}><Icon name="ai" size={14}/> AI triage</button>
         </div>
       </div>
       <div className="card">
         <div className="card-body no-pad">
-          {alarms.map((al, i) => (
+          {alarms.length === 0 ? (
+            <div style={{ padding: 32, textAlign: "center", color: "var(--ink-3)" }}>
+              No alarms in this section.
+              <div className="mono" style={{ fontSize: 11, marginTop: 6, color: "var(--ink-4)" }}>
+                Alarms are raised when a sample's score drops into CRITICAL or SEVERE,
+                or when a saved rule fires on a new reading. Configure rules in <b>Rules</b>.
+              </div>
+            </div>
+          ) : alarms.map((al, i) => (
             <div key={al.id} style={{
               display: "grid", gridTemplateColumns: "auto 1fr 240px auto auto", gap: 16, alignItems: "center", width: "100%",
               padding: "14px 18px", borderBottom: i < alarms.length - 1 ? "1px solid var(--line)" : "none",

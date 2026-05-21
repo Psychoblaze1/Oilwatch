@@ -199,6 +199,8 @@ db.prepare(`
   if (!sampleCols.includes("ir_vision_file"))   db.exec("ALTER TABLE samples ADD COLUMN ir_vision_file TEXT");
   if (!sampleCols.includes("flash_point_file")) db.exec("ALTER TABLE samples ADD COLUMN flash_point_file TEXT");
   if (!sampleCols.includes("additives_file"))   db.exec("ALTER TABLE samples ADD COLUMN additives_file TEXT");
+  // Append-only analyst notes: a JSON array of {id, author, role, text, at}.
+  if (!sampleCols.includes("notes_json"))       db.exec("ALTER TABLE samples ADD COLUMN notes_json TEXT");
 
   const engineCols = db.prepare("PRAGMA table_info(engines)").all().map(c => c.name);
   if (!engineCols.includes("location_id"))   db.exec("ALTER TABLE engines ADD COLUMN location_id TEXT");
@@ -331,7 +333,8 @@ function getBootstrap() {
            sa.score, sa.code, sa.analyst, sa.flags_json, sa.results_json,
            sa.sample_type AS sampleType, sa.filter_patch AS filterPatch, sa.note,
            sa.ir_vision_data AS irVisionData, sa.flash_point_data AS flashPointData, sa.additives_data AS additivesData,
-           sa.ir_vision_file AS irVisionFile, sa.flash_point_file AS flashPointFile, sa.additives_file AS additivesFile
+           sa.ir_vision_file AS irVisionFile, sa.flash_point_file AS flashPointFile, sa.additives_file AS additivesFile,
+           sa.notes_json AS notesJson
     FROM samples sa
     LEFT JOIN engines      e  ON sa.engine_id = e.id
     LEFT JOIN sites        si ON e.site = si.id
@@ -357,6 +360,7 @@ function getBootstrap() {
     irVisionFile:    r.irVisionFile || null,
     flashPointFile:  r.flashPointFile || null,
     additivesFile:   r.additivesFile || null,
+    notes:           JSON.parse(r.notesJson || "[]"),
   }));
   const alarms = db.prepare(`
     SELECT a.id, a.engine_id AS assetId, e.name AS assetName, e.tag AS assetTag,
@@ -460,7 +464,22 @@ function createLocation(siteId, name) {
   insertLocStmt.run(id, siteId, name);
   return { id, siteId, name };
 }
-function deleteLocation(id) { db.prepare("DELETE FROM locations WHERE id = ?").run(id); }
+function deleteLocation(id) {
+  const n = db.prepare("SELECT COUNT(*) AS n FROM engines WHERE location_id = ?").get(id).n;
+  if (n > 0) { const err = new Error(`${n} engine${n === 1 ? "" : "s"} reference this location — remove them first`); err.status = 409; throw err; }
+  const m = db.prepare("SELECT COUNT(*) AS n FROM asset_types WHERE location_id = ?").get(id).n;
+  if (m > 0) { const err = new Error(`${m} asset type${m === 1 ? "" : "s"} reference this location — remove them first`); err.status = 409; throw err; }
+  db.prepare("DELETE FROM locations WHERE id = ?").run(id);
+}
+function deleteSite(id) {
+  const n = db.prepare("SELECT COUNT(*) AS n FROM engines WHERE site = ?").get(id).n;
+  if (n > 0) { const err = new Error(`${n} engine${n === 1 ? "" : "s"} reference this site — remove them first`); err.status = 409; throw err; }
+  const l = db.prepare("SELECT COUNT(*) AS n FROM locations WHERE site_id = ?").get(id).n;
+  if (l > 0) { const err = new Error(`${l} location${l === 1 ? "" : "s"} reference this site — remove them first`); err.status = 409; throw err; }
+  const a = db.prepare("SELECT COUNT(*) AS n FROM asset_types WHERE site_id = ?").get(id).n;
+  if (a > 0) { const err = new Error(`${a} asset type${a === 1 ? "" : "s"} reference this site — remove them first`); err.status = 409; throw err; }
+  db.prepare("DELETE FROM sites WHERE id = ?").run(id);
+}
 
 // --- Asset Classes (user-defined) ----------------------------------
 const insertAcStmt = db.prepare(
@@ -493,7 +512,11 @@ function createAssetType(siteId, locationId, name) {
   insertAtStmt.run(id, siteId, locationId || null, name);
   return { id, siteId, locationId: locationId || null, name };
 }
-function deleteAssetType(id) { db.prepare("DELETE FROM asset_types WHERE id = ?").run(id); }
+function deleteAssetType(id) {
+  const n = db.prepare("SELECT COUNT(*) AS n FROM engines WHERE asset_type_id = ?").get(id).n;
+  if (n > 0) { const err = new Error(`${n} engine${n === 1 ? "" : "s"} reference this asset type — remove them first`); err.status = 409; throw err; }
+  db.prepare("DELETE FROM asset_types WHERE id = ?").run(id);
+}
 
 const insertSiteStmt = db.prepare("INSERT INTO sites (id, code, name, region, assets_count, samples28d) VALUES (?, ?, ?, ?, 0, 0)");
 function createSite({ name, code, region }) {
@@ -552,6 +575,47 @@ function createEngine(e) {
   return { id };
 }
 
+// Patchable engine fields. Any key not in this map is silently ignored
+// so a hostile client can't reach across the schema.
+const ENGINE_PATCH_COLS = {
+  name: "name", tag: "tag", oem: "oem",
+  oilBrand: "oil_brand", oilName: "oil_name", oilIso: "oil_iso",
+  runHours: "run_hours", criticality: "criticality",
+  classLabel: "class_label", section: "section",
+  aircraftReg: "aircraft_reg", locationId: "location_id", assetTypeId: "asset_type_id",
+};
+function updateEngine(id, patch) {
+  if (!patch || typeof patch !== "object") return;
+  const sets = []; const args = [];
+  for (const [k, col] of Object.entries(ENGINE_PATCH_COLS)) {
+    if (k in patch) { sets.push(`${col} = ?`); args.push(patch[k] === "" ? null : patch[k]); }
+  }
+  // Asset class change: also refresh the cached class label.
+  if ("classId" in patch) {
+    sets.push("class = ?"); args.push(patch.classId || null);
+    if (patch.classId) {
+      const cls = db.prepare("SELECT label, section FROM asset_classes WHERE id = ?").get(patch.classId);
+      if (cls && !("classLabel" in patch)) { sets.push("class_label = ?"); args.push(cls.label); }
+      if (cls && !("section" in patch))    { sets.push("section = ?");     args.push(cls.section); }
+    }
+  }
+  if (sets.length === 0) return;
+  args.push(id);
+  db.prepare(`UPDATE engines SET ${sets.join(", ")} WHERE id = ?`).run(...args);
+}
+function deleteEngine(id) {
+  // Cascade: remove dependent samples + alarms; preserve cached AI
+  // responses but null out the engine reference (the answers can still
+  // be useful as fleet-wide history in the AI Library).
+  const tx = db.transaction((id) => {
+    db.prepare("DELETE FROM samples WHERE engine_id = ?").run(id);
+    db.prepare("DELETE FROM alarms  WHERE engine_id = ?").run(id);
+    db.prepare("UPDATE ai_responses SET asset_id = NULL WHERE asset_id = ?").run(id);
+    db.prepare("DELETE FROM engines WHERE id = ?").run(id);
+  });
+  tx(id);
+}
+
 const updateFilterPatchStmt = db.prepare("UPDATE samples SET filter_patch = ? WHERE id = ?");
 function setFilterPatch(id, dataUrl) { updateFilterPatchStmt.run(dataUrl || null, id); }
 
@@ -563,6 +627,43 @@ function nextSampleId() {
 
 const updateSampleStatusStmt = db.prepare("UPDATE samples SET status = ? WHERE id = ?");
 function setSampleStatus(id, status) { updateSampleStatusStmt.run(status, id); }
+
+function deleteSample(id) {
+  const tx = db.transaction((id) => {
+    db.prepare("UPDATE ai_responses SET sample_id = NULL WHERE sample_id = ?").run(id);
+    db.prepare("DELETE FROM samples WHERE id = ?").run(id);
+  });
+  tx(id);
+}
+const SAMPLE_PATCH_COLS = {
+  analyst: "analyst", priority: "priority", component: "component",
+  receivedAt: "received_at",
+};
+function patchSample(id, patch) {
+  if (!patch || typeof patch !== "object") return getSampleById(id);
+  const sets = []; const args = [];
+  for (const [k, col] of Object.entries(SAMPLE_PATCH_COLS)) {
+    if (k in patch) { sets.push(`${col} = ?`); args.push(patch[k] === "" ? null : patch[k]); }
+  }
+  if (sets.length === 0) return getSampleById(id);
+  args.push(id);
+  db.prepare(`UPDATE samples SET ${sets.join(", ")} WHERE id = ?`).run(...args);
+  return getSampleById(id);
+}
+function addSampleNote(id, { text, author, role }) {
+  const row = db.prepare("SELECT notes_json, note FROM samples WHERE id = ?").get(id);
+  if (!row) throw new Error("sample not found");
+  let notes;
+  try { notes = JSON.parse(row.notes_json || "null"); } catch (_) { notes = null; }
+  if (!Array.isArray(notes)) {
+    notes = [];
+    if (row.note) notes.push({ id: 1, author: author || "—", role: role || "ANALYST", text: row.note, at: new Date().toISOString() });
+  }
+  const nextId = notes.length ? Math.max(...notes.map(n => Number(n.id) || 0)) + 1 : 1;
+  notes.push({ id: nextId, author: author || "—", role: role || "ANALYST", text, at: new Date().toISOString() });
+  db.prepare("UPDATE samples SET notes_json = ? WHERE id = ?").run(JSON.stringify(notes), id);
+  return notes;
+}
 
 const updateAlarmAckStmt = db.prepare("UPDATE alarms SET acknowledged = ? WHERE id = ?");
 function setAlarmAck(id, ack) { updateAlarmAckStmt.run(ack ? 1 : 0, id); }
@@ -766,7 +867,10 @@ module.exports = {
   getBootstrap,
   createSample, nextSampleId,
   setSampleStatus,
+  deleteSample, patchSample, addSampleNote,
   setFilterPatch,
+  updateEngine, deleteEngine,
+  deleteSite,
   setAlarmAck, ackAllAlarms,
   setLimit, resetLimits,
   saveRule, deleteRule, nextRuleId,

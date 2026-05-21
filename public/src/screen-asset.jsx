@@ -1,11 +1,21 @@
 // ============================================================
 // Asset drill-down — trend chart, components, sample history
 // ============================================================
-function ScreenAsset({ assetId, back, focus, openAI }) {
+function ScreenAsset({ assetId, back, focus, openAI, setRoute }) {
   const asset = window.ASSETS.find(a => a.id === assetId) || window.ASSETS[0];
   const [param, setParam] = React.useState("Fe");
   const trend = window.makeTrend(asset, param);
   const samples = window.SAMPLES.filter(s => s.assetId === asset.id).slice(0, 8);
+  const trendCount = (trend.points || []).length;
+  const weeksSpan = window.trendWeeks(asset);
+  // Real anomaly summary across the wear-metal triad. We only render
+  // the AI-style hint when the latest reading is more than 1.5σ from
+  // the mean OR the slope is large versus the noise floor — otherwise
+  // we say nothing rather than fabricate a finding.
+  const summary = window.summariseTrend(asset, ["Fe","Cr","Al"]);
+  const anomalies = Object.entries(summary)
+    .filter(([, st]) => st.n >= 3 && (Math.abs(st.latestZ) > 1.5 || (st.sigma > 0 && Math.abs(st.slopePerSample) > st.sigma / 2)))
+    .map(([code, st]) => ({ code, ...st }));
 
   const params = [
     { id: "Fe",      label: "Iron",        unit: "ppm" },
@@ -31,7 +41,7 @@ function ScreenAsset({ assetId, back, focus, openAI }) {
           </div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost"><Icon name="plus" size={14}/> New sample</button>
+          <button className="btn btn-ghost" onClick={() => setRoute && setRoute("log-sample", { preselectAssetId: asset.id })}><Icon name="plus" size={14}/> New sample</button>
           <button className="btn btn-ghost" onClick={() => window.exportAssetPDF(asset)}><Icon name="download" size={14}/> Engine report</button>
           <button className="btn btn-primary" onClick={openAI}><Icon name="ai" size={14}/> Ask AI</button>
         </div>
@@ -72,16 +82,30 @@ function ScreenAsset({ assetId, back, focus, openAI }) {
               </button>
             ))}
           </div>
-          <span className="card-sub mono">12 SAMPLES · ~24 WEEKS</span>
+          <span className="card-sub mono">{trendCount} SAMPLE{trendCount === 1 ? "" : "S"}{weeksSpan ? ` · ~${weeksSpan} WEEK${weeksSpan === 1 ? "" : "S"}` : ""}</span>
         </div>
         <div className="card-body">
           <TrendChart trend={trend} height={280} />
-          <div style={{ display: "flex", gap: 14, marginTop: 12, fontSize: 11, color: "var(--ink-3)" }}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <Icon name="ai" size={11} style={{ color: "var(--accent)" }}/>
-              <span><b style={{ color: "var(--ink-2)" }}>Claude:</b> Trend slope +1.8 ppm/sample (3σ above 90-day median). Iron + chromium running together {window.isAviationAsset(asset) ? "is the classic aviation cam/lifter signature" : `is consistent with accelerated wear on this ${(asset.classLabel || "engine").toLowerCase()}`} — recommend cutting the next filter and tightening the sample cadence.</span>
-            </span>
-          </div>
+          {anomalies.length > 0 && (
+            <div style={{ display: "flex", gap: 14, marginTop: 12, fontSize: 11, color: "var(--ink-3)" }}>
+              <span style={{ display: "inline-flex", alignItems: "flex-start", gap: 6 }}>
+                <Icon name="ai" size={11} style={{ color: "var(--accent)", marginTop: 2 }}/>
+                <span>
+                  <b style={{ color: "var(--ink-2)" }}>Trend signal:</b>{" "}
+                  {anomalies.map((a, i) => (
+                    <React.Fragment key={a.code}>
+                      {i > 0 ? "; " : ""}
+                      <b>{window.PARAM_DEFS.find(p => p.code === a.code)?.name || a.code}</b> at {a.latest.toFixed(1)} ppm ({a.latestZ >= 0 ? "+" : ""}{a.latestZ.toFixed(1)}σ, slope {a.slopePerSample >= 0 ? "+" : ""}{a.slopePerSample.toFixed(2)}/sample)
+                    </React.Fragment>
+                  ))}
+                  {" — "}
+                  {window.isAviationAsset(asset)
+                    ? "watch for the cam/lifter wear signature; consider cutting the next filter."
+                    : `consistent with accelerated wear on this ${(asset.classLabel || "engine").toLowerCase()} — consider shortening the sample cadence.`}
+                </span>
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

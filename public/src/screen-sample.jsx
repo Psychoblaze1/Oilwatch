@@ -20,6 +20,8 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
 
   const canApprove = (role === "ANALYST" || role === "MANAGER") && status === "QC";
   const canPublish = (role === "ANALYST" || role === "MANAGER") && status === "APPROVED";
+  const canReopen  = (role === "ANALYST" || role === "MANAGER" || role === "ADMIN") && status === "REJECTED";
+  const canReeval  = (role === "ANALYST" || role === "MANAGER") && status !== "DRAFT";
 
   const updateStatus = async (next) => {
     setStatus(next);
@@ -28,6 +30,14 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
     try { await window.api.setSampleStatus(baseSample.id, next); }
     catch (e) { console.error("setSampleStatus failed", e); }
     refresh && refresh();
+  };
+  const reevaluate = async () => {
+    try {
+      const r = await window.api.reevaluateSample(baseSample.id);
+      const idx = window.SAMPLES.findIndex(s => s.id === baseSample.id);
+      if (idx >= 0 && r) window.SAMPLES[idx] = { ...window.SAMPLES[idx], score: r.score, code: r.code, flags: r.flags || [] };
+      refresh && refresh();
+    } catch (e) { alert("Re-evaluate failed: " + e.message); }
   };
 
   // Render the diesel sample view (SANS 342:2016 panel) instead of the
@@ -42,9 +52,13 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
         canApprove={canApprove}
         canPublish={canPublish}
         updateStatus={updateStatus}
+        reevaluate={reevaluate}
+        canReopen={canReopen}
+        canReeval={canReeval}
         back={back}
         openAI={openAI}
         refresh={refresh}
+        role={role}
       />
     );
   }
@@ -142,8 +156,6 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
               </div>
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                 <button className="btn btn-sm" onClick={openAI}>Ask follow-up</button>
-                <button className="btn btn-sm btn-ghost">Cite 3 similar cases</button>
-                <button className="btn btn-sm btn-ghost">Override / flag</button>
               </div>
             </div>
           </div>
@@ -251,13 +263,17 @@ function ScreenSample({ sampleId, back, openAI, role, refresh }) {
             {canPublish && " Publish makes this report visible to the operator."}
             {!canApprove && !canPublish && " No workflow actions available at this status / role."}
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {canReeval && <button className="btn btn-ghost" onClick={reevaluate} title="Re-grade this sample against the current limits"><Icon name="ai" size={12}/> Re-evaluate</button>}
+            {canReopen && <button className="btn" onClick={() => updateStatus("QC")}>Reopen to QC</button>}
             {canApprove && <button className="btn" onClick={() => updateStatus("REJECTED")}>Reject</button>}
             {canApprove && <button className="btn btn-primary" onClick={() => updateStatus("APPROVED")}><Icon name="check" size={14}/> Approve</button>}
             {canPublish && <button className="btn btn-primary" onClick={() => updateStatus("PUBLISHED")}><Icon name="check" size={14}/> Publish to operator</button>}
           </div>
         </div>
       </div>
+
+      <SampleNotesCard sample={sample} role={role} refresh={refresh} />
     </div>
   );
 }
@@ -267,7 +283,7 @@ window.ScreenSample = ScreenSample;
 // ============================================================
 // Diesel sample view (SANS 342:2016 layout)
 // ============================================================
-function DieselSampleView({ sample, asset, results, status, canApprove, canPublish, updateStatus, back, openAI, refresh }) {
+function DieselSampleView({ sample, asset, results, status, canApprove, canPublish, canReopen, canReeval, updateStatus, reevaluate, back, openAI, refresh, role }) {
   const site = window.SITES.find(s => s.id === asset?.site) || {};
   const sampleType = window.getSampleType(sample);
   const standard = sampleType.standard || "SANS 342:2016";
@@ -432,13 +448,17 @@ function DieselSampleView({ sample, asset, results, status, canApprove, canPubli
             {canPublish && " Publish makes this report visible to the operator."}
             {!canApprove && !canPublish && " No workflow actions available at this status / role."}
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {canReeval && <button className="btn btn-ghost" onClick={reevaluate} title="Re-grade this sample against the current limits"><Icon name="ai" size={12}/> Re-evaluate</button>}
+            {canReopen && <button className="btn" onClick={() => updateStatus("QC")}>Reopen to QC</button>}
             {canApprove && <button className="btn" onClick={() => updateStatus("REJECTED")}>Reject</button>}
             {canApprove && <button className="btn btn-primary" onClick={() => updateStatus("APPROVED")}><Icon name="check" size={14}/> Approve</button>}
             {canPublish && <button className="btn btn-primary" onClick={() => updateStatus("PUBLISHED")}><Icon name="check" size={14}/> Publish to operator</button>}
           </div>
         </div>
       </div>
+
+      <SampleNotesCard sample={sample} role={role} refresh={refresh} />
 
       <style>{`
         .dsl-info { display: grid; grid-template-columns: repeat(4, 1fr); }
@@ -586,6 +606,70 @@ window.DieselSampleView = DieselSampleView;
 // Field references — every web citation the AI has surfaced for the
 // engine this sample belongs to. Pulled from /api/ai/library.
 // ============================================================
+// Append-only analyst notes timeline. Notes are stored as a JSON array
+// on the sample (`notes` field) so existing approvals can still get
+// commentary attached without rewriting the workflow log.
+function SampleNotesCard({ sample, role, refresh }) {
+  const [text, setText] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const canAdd = role === "TECH" || role === "ANALYST" || role === "MANAGER" || role === "ADMIN";
+  // Accept either the structured array (new) or a single legacy string.
+  const notes = (() => {
+    if (Array.isArray(sample.notes) && sample.notes.length) return sample.notes;
+    if (sample.note) return [{ id: 0, author: sample.analyst || "—", role: "ANALYST", text: sample.note, at: sample.receivedAt }];
+    return [];
+  })();
+  const add = async () => {
+    const t = text.trim();
+    if (!t) return;
+    setSaving(true);
+    try {
+      const r = await window.api.addSampleNote(sample.id, {
+        text: t,
+        author: (window.CURRENT_USER && window.CURRENT_USER.name) || "Operator",
+        role: role || "ANALYST",
+      });
+      const idx = window.SAMPLES.findIndex(s => s.id === sample.id);
+      if (idx >= 0 && r) window.SAMPLES[idx] = { ...window.SAMPLES[idx], notes: r.notes };
+      setText("");
+      refresh && refresh();
+    } catch (e) { alert("Save failed: " + e.message); }
+    finally { setSaving(false); }
+  };
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="card-head">
+        <span className="card-title">Analyst Notes</span>
+        <span className="card-sub mono">{notes.length} ENTR{notes.length === 1 ? "Y" : "IES"} · APPEND-ONLY</span>
+      </div>
+      <div className="card-body no-pad">
+        {notes.length === 0 ? (
+          <div style={{ padding: 16, color: "var(--ink-3)", fontSize: 12.5 }}>
+            No analyst notes on this sample yet.
+          </div>
+        ) : notes.map((n, i) => (
+          <div key={n.id ?? i} style={{ padding: "10px 14px", borderBottom: i < notes.length - 1 ? "1px solid var(--line)" : "none" }}>
+            <div style={{ fontSize: 13, color: "var(--ink)", whiteSpace: "pre-wrap" }}>{n.text}</div>
+            <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)", marginTop: 4, letterSpacing: 0.05 }}>
+              {(n.author || "—").toUpperCase()}{n.role ? " · " + n.role : ""} · {window.fmtDate(n.at)}
+            </div>
+          </div>
+        ))}
+      </div>
+      {canAdd && (
+        <div className="card-body" style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+          <textarea rows={2} value={text} onChange={e => setText(e.target.value)}
+            placeholder="Add a note — visible to other analysts and printed on the report."
+            style={{ flex: 1, padding: 8, borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg-sunken)", color: "var(--ink)", fontFamily: "var(--sans)", fontSize: 13, resize: "vertical" }} />
+          <button className="btn btn-primary" disabled={!text.trim() || saving} onClick={add}>
+            <Icon name="plus" size={12}/> Add note
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FieldReferencesCard({ assetId }) {
   const [items, setItems] = React.useState([]);
   const [loading, setLoading] = React.useState(true);

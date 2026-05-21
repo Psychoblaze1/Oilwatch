@@ -283,7 +283,11 @@ function ScreenManage({ role, refresh }) {
                         <td>{l.name}</td>
                         <td className="mono t-muted">{l.id}</td>
                         <td style={{ textAlign: "right" }}>
-                          {canEdit && <button className="btn btn-sm btn-ghost" onClick={async () => { if (confirm(`Delete location "${l.name}"?`)) { await window.api.deleteLocation(l.id); await refreshAll(); } }}><Icon name="trash" size={12}/></button>}
+                          {canEdit && <button className="btn btn-sm btn-ghost" onClick={async () => {
+                            if (!confirm(`Delete location "${l.name}"?`)) return;
+                            try { await window.api.deleteLocation(l.id); await refreshAll(); }
+                            catch (e) { alert(e.message); }
+                          }}><Icon name="trash" size={12}/></button>}
                         </td>
                       </tr>
                     ))}
@@ -321,7 +325,11 @@ function ScreenManage({ role, refresh }) {
                           <td>{at.name}</td>
                           <td className="t-muted">{loc?.name || "—"}</td>
                           <td style={{ textAlign: "right" }}>
-                            {canEdit && <button className="btn btn-sm btn-ghost" onClick={async () => { if (confirm(`Delete asset type "${at.name}"?`)) { await window.api.deleteAssetType(at.id); await refreshAll(); } }}><Icon name="trash" size={12}/></button>}
+                            {canEdit && <button className="btn btn-sm btn-ghost" onClick={async () => {
+                              if (!confirm(`Delete asset type "${at.name}"?`)) return;
+                              try { await window.api.deleteAssetType(at.id); await refreshAll(); }
+                              catch (e) { alert(e.message); }
+                            }}><Icon name="trash" size={12}/></button>}
                           </td>
                         </tr>
                       );
@@ -532,18 +540,11 @@ function ScreenManage({ role, refresh }) {
             ) : (
               <table className="table">
                 <thead><tr>
-                  <th>Name</th><th>Tag / Serial</th><th>Location</th><th>Asset Type</th><th>OEM</th><th>Oil</th>
+                  <th>Name</th><th>Tag / Serial</th><th>Location</th><th>Asset Type</th><th>OEM</th><th>Oil</th><th>Run hrs</th><th>Crit</th><th></th>
                 </tr></thead>
                 <tbody>
                   {engines.map(e => (
-                    <tr key={e.id}>
-                      <td>{e.name}</td>
-                      <td className="mono t-id">{e.tag || "—"}</td>
-                      <td className="t-muted">{e.locationName || "—"}</td>
-                      <td className="t-muted">{e.assetTypeName || e.classLabel || "—"}</td>
-                      <td className="t-muted">{e.oem || "—"}</td>
-                      <td className="t-muted">{e.oil?.name || "—"}</td>
-                    </tr>
+                    <EngineRow key={e.id} engine={e} canEdit={canEdit} refreshAll={refreshAll} />
                   ))}
                 </tbody>
               </table>
@@ -641,5 +642,85 @@ function dataUrlFromImage(file, maxW = 600, quality = 0.85) {
 // and downstream AI FAA-AD lookups.
 const AVIATION_CLASS_IDS = new Set(["lyco4","lyco6","conto4","conto6","rotax","radial"]);
 function isAviationClass(id) { return id && AVIATION_CLASS_IDS.has(id); }
+
+// Inline edit/delete row for the Equipment table. Keeps the read-only
+// row compact and reveals an editable strip when the user clicks Edit.
+function EngineRow({ engine, canEdit, refreshAll }) {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState({
+    name: engine.name || "", tag: engine.tag || "", oem: engine.oem || "",
+    oilName: engine.oil?.name || "", runHours: engine.runHours ?? 0,
+    criticality: engine.criticality || "C", aircraftReg: engine.aircraftReg || "",
+  });
+  React.useEffect(() => {
+    setDraft({
+      name: engine.name || "", tag: engine.tag || "", oem: engine.oem || "",
+      oilName: engine.oil?.name || "", runHours: engine.runHours ?? 0,
+      criticality: engine.criticality || "C", aircraftReg: engine.aircraftReg || "",
+    });
+  }, [engine.id]);
+  const save = async () => {
+    try {
+      await window.api.updateEngine(engine.id, {
+        name: draft.name.trim(),
+        tag: draft.tag.trim(),
+        oem: draft.oem.trim() || null,
+        oilName: draft.oilName.trim() || null,
+        runHours: Number(draft.runHours) || 0,
+        criticality: draft.criticality,
+        aircraftReg: draft.aircraftReg.trim() || null,
+      });
+      setEditing(false);
+      await refreshAll();
+    } catch (e) { alert("Save failed: " + e.message); }
+  };
+  const del = async () => {
+    if (!confirm(`Delete "${engine.name}"? This removes its samples and alarms too.`)) return;
+    try { await window.api.deleteEngine(engine.id); await refreshAll(); }
+    catch (e) { alert("Delete failed: " + e.message); }
+  };
+  if (!editing) {
+    return (
+      <tr>
+        <td>{engine.name}</td>
+        <td className="mono t-id">{engine.tag || "—"}</td>
+        <td className="t-muted">{engine.locationName || "—"}</td>
+        <td className="t-muted">{engine.assetTypeName || engine.classLabel || "—"}</td>
+        <td className="t-muted">{engine.oem || "—"}</td>
+        <td className="t-muted">{engine.oil?.name || "—"}</td>
+        <td className="mono t-muted">{(engine.runHours || 0).toLocaleString()}</td>
+        <td><Tag tone="accent">{engine.criticality || "C"}</Tag></td>
+        <td style={{ textAlign: "right" }}>
+          {canEdit && (
+            <>
+              <button className="btn btn-sm btn-ghost" onClick={() => setEditing(true)} aria-label="Edit equipment"><Icon name="settings" size={12}/></button>
+              <button className="btn btn-sm btn-ghost" onClick={del} aria-label="Delete equipment"><Icon name="trash" size={12}/></button>
+            </>
+          )}
+        </td>
+      </tr>
+    );
+  }
+  return (
+    <tr>
+      <td><input className="mng-input" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })}/></td>
+      <td><input className="mng-input mono" value={draft.tag} onChange={e => setDraft({ ...draft, tag: e.target.value })}/></td>
+      <td className="t-muted">{engine.locationName || "—"}</td>
+      <td className="t-muted">{engine.assetTypeName || engine.classLabel || "—"}</td>
+      <td><input className="mng-input" value={draft.oem} onChange={e => setDraft({ ...draft, oem: e.target.value })}/></td>
+      <td><input className="mng-input" value={draft.oilName} onChange={e => setDraft({ ...draft, oilName: e.target.value })}/></td>
+      <td><input className="mng-input mono" type="number" value={draft.runHours} onChange={e => setDraft({ ...draft, runHours: e.target.value })}/></td>
+      <td>
+        <select className="mng-input" value={draft.criticality} onChange={e => setDraft({ ...draft, criticality: e.target.value })}>
+          <option value="A">A</option><option value="B">B</option><option value="C">C</option>
+        </select>
+      </td>
+      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+        <button className="btn btn-sm btn-primary" onClick={save} disabled={!draft.name.trim()}><Icon name="check" size={12}/></button>
+        <button className="btn btn-sm btn-ghost" onClick={() => setEditing(false)}>Cancel</button>
+      </td>
+    </tr>
+  );
+}
 
 window.ScreenManage = ScreenManage;
