@@ -262,8 +262,81 @@ function RULBar({ days, total = 120 }) {
   );
 }
 
+// Condition donut — five-segment SVG ring used on the dashboard. Each
+// slice is { code, label, n, color } and renders proportional to n.
+// Empty input shows a neutral ring with "no data" centre text.
+function ConditionDonut({ slices, size = 200, thickness = 28 }) {
+  const total = slices.reduce((a, s) => a + (s.n || 0), 0);
+  const cx = size / 2, cy = size / 2;
+  const r = size / 2 - thickness / 2 - 2;
+  const C = 2 * Math.PI * r;
+  // Render slices as overlapping circles using stroke-dasharray, so we
+  // don't have to compute arc paths. Each segment starts where the
+  // previous one ended.
+  let offset = 0;
+  const segs = total > 0 ? slices.filter(s => s.n > 0).map(s => {
+    const len = (s.n / total) * C;
+    const node = { ...s, len, offset };
+    offset += len;
+    return node;
+  }) : [];
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: `${size}px 1fr`, gap: 18, alignItems: "center" }}>
+      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--bg-sunken)" strokeWidth={thickness} />
+        {segs.map((s, i) => (
+          <circle key={i} cx={cx} cy={cy} r={r} fill="none"
+                  stroke={s.color} strokeWidth={thickness}
+                  strokeDasharray={`${s.len.toFixed(2)} ${(C - s.len).toFixed(2)}`}
+                  strokeDashoffset={(-s.offset).toFixed(2)}
+                  style={{ transition: "stroke-dasharray 200ms" }} />
+        ))}
+        {/* Inner mask: counter-rotate the centre text so it stays upright. */}
+        <g style={{ transform: "rotate(90deg)", transformOrigin: `${cx}px ${cy}px` }}>
+          <text x={cx} y={cy - 4} textAnchor="middle" style={{ fontSize: 22, fontWeight: 600, fill: "var(--ink)", fontFamily: "var(--mono)" }}>{total}</text>
+          <text x={cx} y={cy + 14} textAnchor="middle" style={{ fontSize: 10, fill: "var(--ink-3)", fontFamily: "var(--mono)", letterSpacing: 0.12 }}>COMPONENTS</text>
+        </g>
+      </svg>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {slices.map((s, i) => {
+          const pct = total > 0 ? (s.n / total * 100) : 0;
+          return (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "12px 1fr auto auto", gap: 10, alignItems: "center", fontSize: 12 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, display: "inline-block" }}/>
+              <span style={{ color: "var(--ink-2)" }}>{s.label}</span>
+              <span className="mono" style={{ color: "var(--ink-3)", fontSize: 11 }}>{pct.toFixed(1)}%</span>
+              <span className="mono" style={{ color: "var(--ink)", fontSize: 12, fontWeight: 600, minWidth: 28, textAlign: "right" }}>{s.n}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Horizontal chip strip used to filter the dashboard by asset class
+// (component type, in TruVu's language). The "ALL" chip always sits
+// first and shows the unfiltered total.
+function ComponentTypeChips({ items, value, onChange }) {
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+      <button className={`btn btn-sm ${value === "ALL" ? "btn-primary" : "btn-ghost"}`} onClick={() => onChange("ALL")}>
+        ALL COMPONENTS<span className="mono" style={{ marginLeft: 4, opacity: 0.7 }}>({items.reduce((a, b) => a + b.n, 0)})</span>
+      </button>
+      {items.map(it => (
+        <button key={it.id} className={`btn btn-sm ${value === it.id ? "btn-primary" : "btn-ghost"}`}
+                onClick={() => onChange(it.id)}>
+          {(it.label || it.id).toUpperCase()}<span className="mono" style={{ marginLeft: 4, opacity: 0.7 }}>({it.n})</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 window.HealthRadar = HealthRadar;
 window.FleetHeatmap = FleetHeatmap;
 window.Sparkline = Sparkline;
 window.TrendChart = TrendChart;
 window.RULBar = RULBar;
+window.ConditionDonut = ConditionDonut;
+window.ComponentTypeChips = ComponentTypeChips;

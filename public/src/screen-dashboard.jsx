@@ -3,9 +3,22 @@
 // ============================================================
 function ScreenDashboard({ siteFilter, section, setRoute, focus, openAI }) {
   const sec = section || "oil";
+  const [classFilter, setClassFilter] = React.useState("ALL");
   const sites = siteFilter === "all" ? window.SITES : window.SITES.filter(s => s.id === siteFilter);
   let assets = siteFilter === "all" ? window.ASSETS : window.ASSETS.filter(a => a.site === siteFilter);
   assets = assets.filter(a => window.getSectionForAsset(a) === sec);
+  // Build the chip list off the full section-scoped set so the chip
+  // counts don't collapse when the user picks one.
+  const chipItems = (() => {
+    const map = new Map();
+    for (const a of assets) {
+      const id = a.class || "unknown";
+      const cur = map.get(id) || { id, label: a.classLabel || a.class || "Other", n: 0 };
+      cur.n++; map.set(id, cur);
+    }
+    return [...map.values()].sort((a, b) => b.n - a.n);
+  })();
+  if (classFilter !== "ALL") assets = assets.filter(a => (a.class || "unknown") === classFilter);
   const assetIds = new Set(assets.map(a => a.id));
   // Show samples that belong to this section (by sample type) and whose
   // engine is in scope of the current site filter.
@@ -18,6 +31,19 @@ function ScreenDashboard({ siteFilter, section, setRoute, focus, openAI }) {
   const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
   for (const a of assets) counts[a.code]++;
   const total = assets.length;
+  // "No Sample" bucket — engines that have never had a sample logged.
+  // Pulled from the unfiltered samples list so the count reflects the
+  // engine, not the current section's sample subset.
+  const sampledIds = new Set(window.SAMPLES.map(s => s.assetId).filter(Boolean));
+  const noSample = assets.filter(a => !sampledIds.has(a.id)).length;
+  // Donut: TruVu maps onto our 4-level COND scale by treating Caution
+  // as "Abnormal" and folding Critical + Severe together.
+  const donutSlices = [
+    { code: "ok",       label: "OK",        n: counts[1],       color: "var(--ok)" },
+    { code: "abnormal", label: "Abnormal",  n: counts[2],       color: "var(--warn)" },
+    { code: "severe",   label: "Severe",    n: counts[3] + counts[4], color: "var(--crit)" },
+    { code: "nosample", label: "No Sample", n: noSample,        color: "var(--ink-4)" },
+  ];
   const inQc = samples.filter(s => s.status === "QC").length;
   const pub24 = samples.filter(s => s.status === "PUBLISHED" && (Date.now() - s.receivedAt) < 1000 * 60 * 60 * 48).length;
 
@@ -39,32 +65,44 @@ function ScreenDashboard({ siteFilter, section, setRoute, focus, openAI }) {
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="kpi-row">
-        <div className="kpi">
-          <div className="kpi-label">Total Engines</div>
-          <div className="kpi-value">{total}</div>
-          <div className="kpi-meta"><span className="delta-flat">stable</span> · {sites.length} operators</div>
+      {/* Component-type filter chips — drives the entire dashboard */}
+      {chipItems.length > 1 && (
+        <ComponentTypeChips items={chipItems} value={classFilter} onChange={setClassFilter} />
+      )}
+
+      {/* Component Health Overview — donut alongside KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(360px, 1fr) 2fr", gap: 14, marginBottom: 14 }}>
+        <div className="card" style={{ margin: 0 }}>
+          <div className="card-head">
+            <span className="card-title">Component Health Overview</span>
+            <span className="card-sub mono">LAST SAMPLE RESULTS · {total} COMPONENT{total === 1 ? "" : "S"}</span>
+          </div>
+          <div className="card-body">
+            <ConditionDonut slices={donutSlices} />
+          </div>
         </div>
-        <div className="kpi">
-          <div className="kpi-label">Normal</div>
-          <div className="kpi-value" style={{ color: "var(--ok)" }}>{counts[1]}</div>
-          <div className="kpi-meta"><span className="delta-dn"><Icon name="arrow-dn" size={11}/>2</span> vs last week · {total ? Math.round(counts[1]/total*100) : 0}%</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Caution</div>
-          <div className="kpi-value" style={{ color: "var(--warn)" }}>{counts[2]}</div>
-          <div className="kpi-meta"><span className="delta-up"><Icon name="arrow-up" size={11}/>4</span> vs last week</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Critical / Severe</div>
-          <div className="kpi-value" style={{ color: "var(--crit)" }}>{counts[3] + counts[4]}</div>
-          <div className="kpi-meta"><span className="delta-up"><Icon name="arrow-up" size={11}/>1</span> overdue cam-scope</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Samples in QC</div>
-          <div className="kpi-value">{inQc}</div>
-          <div className="kpi-meta">{pub24} published in 48h</div>
+
+        <div className="kpi-row" style={{ margin: 0, gridTemplateColumns: "repeat(4, 1fr)" }}>
+          <div className="kpi">
+            <div className="kpi-label">Total Components</div>
+            <div className="kpi-value">{total}</div>
+            <div className="kpi-meta">{sites.length} operator{sites.length === 1 ? "" : "s"}{noSample > 0 ? ` · ${noSample} unsampled` : ""}</div>
+          </div>
+          <div className="kpi">
+            <div className="kpi-label">Caution</div>
+            <div className="kpi-value" style={{ color: "var(--warn)" }}>{counts[2]}</div>
+            <div className="kpi-meta">{total ? Math.round(counts[2]/total*100) : 0}% of fleet</div>
+          </div>
+          <div className="kpi">
+            <div className="kpi-label">Critical / Severe</div>
+            <div className="kpi-value" style={{ color: "var(--crit)" }}>{counts[3] + counts[4]}</div>
+            <div className="kpi-meta">{total ? Math.round((counts[3]+counts[4])/total*100) : 0}% of fleet</div>
+          </div>
+          <div className="kpi">
+            <div className="kpi-label">Samples in QC</div>
+            <div className="kpi-value">{inQc}</div>
+            <div className="kpi-meta">{pub24} published in 48h</div>
+          </div>
         </div>
       </div>
 
