@@ -117,7 +117,7 @@ function App() {
         <div className="side-foot">
           <div className="acct">
             <div className="av">M</div>
-            <div style={{ flex: 1 }}><div className="nm">My EasyEquities</div><div className="br">USD + ZAR · linked</div></div>
+            <div style={{ flex: 1 }}><div className="nm">My EasyEquities</div><div className="br">USD + ZAR · {AD.holdingsSource === "easyequities" ? "synced" : "sample"}</div></div>
             <Ic.arrow style={{ width: 15, height: 15, color: "var(--d-fg-3)" }}/>
           </div>
         </div>
@@ -129,6 +129,7 @@ function App() {
         <div className="mkt">
           <div className="mkt-chip"><span className={"dot " + (ses.jse.open ? "open" : "closed")}/> JSE {ses.jse.open ? "open" : "closed"}</div>
           <div className="mkt-chip"><span className={"dot " + (ses.nyse.open ? "open" : "closed")}/> NYSE {ses.nyse.open ? "open" : "closed"}</div>
+          <div className="mkt-chip" title={AD.live ? "Real-time market data" : "Sample data — live prices need the server"}><span className={"dot " + (AD.live ? "open" : "closed")}/> {AD.live ? "Live data" : "Sample"}</div>
         </div>
         <div className="top-right">
           <span className="clock">{now.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", second: "2-digit" })} SAST</span>

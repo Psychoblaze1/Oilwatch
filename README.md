@@ -107,6 +107,26 @@ surfaces report that the key is missing.
 
 4. Front it with nginx/ALB and terminate TLS there.
 
+## EasyEquities sync — Claude reads your real holdings (cowork)
+
+`cowork/` is a small **local** tool where **Claude drives a real Chrome** to pull
+your actual EasyEquities holdings into the dashboard. You log in yourself (so
+OTP/2FA works and **no password is stored**); Claude then takes over the
+authenticated tab, reads every position across your USD and ZAR accounts using
+DOM tools (read page / click / navigate — there is no "buy" tool, it's
+read-only), and writes them to `server/data/holdings.json`. The dashboard loads
+that in place of the sample holdings, and the sidebar flips to "synced".
+
+```bash
+cd cowork
+npm install
+npx playwright install chromium   # one-time
+npm run sync                       # opens Chrome → you log in → press Enter
+```
+
+See `cowork/README.md` for details. `server/data/holdings.json` is your personal
+data and is git-ignored.
+
 ## Data: what's real
 
 - **Prices, history, FX — real.** Every quote, 90-day chart and the USD/ZAR rate

@@ -9,6 +9,7 @@
 
 require("dotenv").config();
 const path = require("path");
+const fs = require("fs");
 const express = require("express");
 const Anthropic = require("@anthropic-ai/sdk");
 const quotes = require("./quotes");
@@ -47,6 +48,16 @@ app.get("/api/quotes", async (req, res) => {
   const symbols = (req.query.symbols || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
   try { res.json(await quotes.getQuotes(symbols)); }
   catch (e) { console.error("quotes error:", e.message); res.status(502).json({ error: e.message }); }
+});
+
+// Real holdings written by the EasyEquities "cowork" sync (cowork/sync.js).
+// Personal data, kept out of git; returns {holdings:null} until you've synced.
+const HOLDINGS_FILE = path.join(__dirname, "data", "holdings.json");
+app.get("/api/holdings", (_req, res) => {
+  try {
+    if (!fs.existsSync(HOLDINGS_FILE)) return res.json({ holdings: null, source: "sample" });
+    res.json(JSON.parse(fs.readFileSync(HOLDINGS_FILE, "utf8")));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ----------------------------------------------------------------------------

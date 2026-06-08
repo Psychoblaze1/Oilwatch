@@ -1,0 +1,17 @@
+{
+  "name": "atomic-capital-cowork",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local tool: Claude drives a real Chrome to read your EasyEquities holdings into Atomic Capital.",
+  "main": "sync.js",
+  "scripts": {
+    "sync": "node sync.js",
+    "postinstall": "echo 'Run: npx playwright install chromium'"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.102.0",
+    "dotenv": "^16.4.5",
+    "playwright": "^1.49.0"
+  }
+}

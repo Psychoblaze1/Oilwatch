@@ -219,6 +219,14 @@
       window.AtomicData.live = false;
       console.warn("[AtomicData] live data unavailable — showing sample data:", e.message);
     }
+    // load real EasyEquities holdings if the cowork sync has run
+    try {
+      const h = await fetchJSON("/api/holdings");
+      if (h && Array.isArray(h.holdings) && h.holdings.length) {
+        setHoldings(h.holdings);
+        window.AtomicData.holdingsSyncedAt = h.syncedAt || null;
+      }
+    } catch (_) { /* no synced holdings yet — keep the sample set */ }
   }
 
   // poll current prices; the UI flashes + redraws via subscribers

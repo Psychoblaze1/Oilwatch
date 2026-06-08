@@ -3,3 +3,7 @@ node_modules/
 .env.local
 *.log
 .DS_Store
+
+# personal data synced from EasyEquities (cowork/sync.js) — never commit
+server/data/
+cowork/.userdata/
