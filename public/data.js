@@ -93,7 +93,7 @@
 
   const WATCH = ["RGTI", "QBTS", "ARM", "AVGO", "TSM", "GOOGL", "SMCI", "ASML"];
 
-  const USDZAR = 18.42; // for blended total
+  let USDZAR = 18.42; // seed; replaced by the live rate from /api/bootstrap
 
   // ---------- AI signals ----------
   // reasoning keyed by risk appetite: cons | bal | agg
@@ -180,25 +180,93 @@
     ];
   }
 
-  // ---------- live tick engine ----------
+  // ---------- live data: real quotes via the server (synthetic fallback) ----------
+  // The synthetic STOCKS above are only a seed for instant first paint / offline
+  // use. hydrate() replaces them with real Yahoo data; startFeed() then polls
+  // /api/quotes for live prices. If the server/data is unreachable we keep the
+  // seed alive with a gentle random walk so nothing looks frozen.
   const subs = new Set();
-  let timer = null, running = false;
-  function tick() {
+  function subscribe(fn) { subs.add(fn); return () => subs.delete(fn); }
+  function notify() { subs.forEach(fn => { try { fn(); } catch (e) {} }); }
+
+  let timer = null, running = false, live = false;
+
+  async function fetchJSON(url) {
+    const r = await fetch(url, { headers: { accept: "application/json" } });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }
+
+  // one-time: swap the synthetic seed for real prices + history + intraday + FX
+  async function hydrate() {
+    try {
+      const data = await fetchJSON("/api/bootstrap");
+      if (!data || !data.stocks) throw new Error("no stocks");
+      for (const sym in data.stocks) {
+        const s = STOCKS[sym], d = data.stocks[sym];
+        if (!s || !d) continue;
+        s.price = d.price; s.prevClose = d.prevClose;
+        s.open = d.open; s.dayHigh = d.dayHigh; s.dayLow = d.dayLow;
+        if (d.cur) s.cur = d.cur;
+        if (Array.isArray(d.history) && d.history.length) s.history = d.history;
+        if (Array.isArray(d.intraday) && d.intraday.length > 1) s.intraday = d.intraday;
+        recompute(s);
+      }
+      if (data.usdZar) { USDZAR = data.usdZar; window.AtomicData.USDZAR = data.usdZar; }
+      live = true; window.AtomicData.live = true; window.AtomicData.source = data.source || "yahoo";
+      notify();
+    } catch (e) {
+      window.AtomicData.live = false;
+      console.warn("[AtomicData] live data unavailable — showing sample data:", e.message);
+    }
+  }
+
+  // poll current prices; the UI flashes + redraws via subscribers
+  async function poll() {
+    try {
+      const data = await fetchJSON("/api/quotes");
+      if (!data || !data.quotes) return;
+      let changed = false;
+      for (const sym in data.quotes) {
+        const s = STOCKS[sym], q = data.quotes[sym];
+        if (!s || !q) continue;
+        if (q.price !== s.price) {
+          s.prevTick = s.price; s.price = q.price; changed = true;
+          if (q.price > s.dayHigh) s.dayHigh = q.price;
+          if (q.price < s.dayLow) s.dayLow = q.price;
+          s.intraday.push(q.price); if (s.intraday.length > 120) s.intraday.shift();
+        }
+        s.prevClose = q.prevClose; if (q.cur) s.cur = q.cur;
+        recompute(s);
+      }
+      live = true; window.AtomicData.live = true;
+      if (changed) notify();
+    } catch (e) {
+      if (!live) { syntheticTick(); notify(); } // offline → keep the seed moving
+    }
+  }
+
+  // fallback only: gentle random walk when the live feed can't be reached
+  function syntheticTick() {
     for (const sym in STOCKS) {
       const s = STOCKS[sym];
-      const drift = (rnd() - 0.5) * s._vol * 0.16;
-      const np = Math.max(0.5, +(s.price * (1 + drift)).toFixed(2));
+      const np = Math.max(0.5, +(s.price * (1 + (rnd() - 0.5) * s._vol * 0.16)).toFixed(2));
       s.prevTick = s.price; s.price = np;
       if (np > s.dayHigh) s.dayHigh = np;
       if (np < s.dayLow) s.dayLow = np;
-      s.intraday.push(np); if (s.intraday.length > 90) s.intraday.shift();
+      s.intraday.push(np); if (s.intraday.length > 120) s.intraday.shift();
       recompute(s);
     }
-    subs.forEach(fn => { try { fn(); } catch (e) {} });
   }
-  function startFeed(ms = 1600) { if (running) return; running = true; timer = setInterval(tick, ms); }
+
+  // real quotes don't move every second — clamp the poll interval to be polite
+  function startFeed(ms = 15000) {
+    if (running) return; running = true;
+    const interval = Math.max(8000, ms || 15000);
+    poll();
+    timer = setInterval(poll, interval);
+  }
   function stopFeed() { running = false; clearInterval(timer); }
-  function subscribe(fn) { subs.add(fn); return () => subs.delete(fn); }
 
   // market session (SAST). JSE 09:00–17:00, NYSE 15:30–22:00 SAST.
   function sessions() {
@@ -212,8 +280,27 @@
 
   window.AtomicData = {
     STOCKS, HOLDINGS, WATCH, SIGNALS, USDZAR,
-    newsFor, startFeed, stopFeed, subscribe, sessions, recompute,
+    live: false, source: "sample",
+    newsFor, startFeed, stopFeed, subscribe, sessions, recompute, hydrate,
+    setHoldings,
     list: () => Object.values(STOCKS),
     get: (s) => STOCKS[s],
   };
+
+  // Replace the synthetic holdings with a real set (e.g. from EasyEquities).
+  // Accepts [{ sym, shares, avg, acct }]; unknown tickers are ignored.
+  function setHoldings(rows) {
+    if (!Array.isArray(rows)) return;
+    const clean = rows
+      .filter(r => r && STOCKS[r.sym])
+      .map(r => ({ sym: r.sym, shares: +r.shares || 0, avg: +r.avg || STOCKS[r.sym].price,
+                   acct: r.acct || (STOCKS[r.sym].cur === "ZAR" ? "ZAR" : "USD") }));
+    HOLDINGS.length = 0;
+    clean.forEach(h => HOLDINGS.push(h));
+    window.AtomicData.holdingsSource = "easyequities";
+    notify();
+  }
+
+  // pull real prices as soon as the page loads
+  hydrate();
 })();

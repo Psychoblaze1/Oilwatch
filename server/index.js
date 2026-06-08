@@ -11,6 +11,7 @@ require("dotenv").config();
 const path = require("path");
 const express = require("express");
 const Anthropic = require("@anthropic-ai/sdk");
+const quotes = require("./quotes");
 
 const PORT = process.env.PORT || 3000;
 // Default to the most capable model. Override with ANTHROPIC_MODEL in .env.
@@ -31,6 +32,22 @@ app.get("/", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 app.get("/api/health", (_req, res) =>
   res.json({ ok: true, model: MODEL, webSearch: WEB_SEARCH, hasKey: !!API_KEY })
 );
+
+// ----------------------------------------------------------------------------
+// Real market data (Yahoo Finance proxy — see server/quotes.js)
+//   GET /api/bootstrap          full snapshot: prices + 90d history + intraday + FX
+//   GET /api/quotes?symbols=... lightweight current quotes for polling
+// ----------------------------------------------------------------------------
+app.get("/api/bootstrap", async (_req, res) => {
+  try { res.json(await quotes.getBootstrap()); }
+  catch (e) { console.error("bootstrap error:", e.message); res.status(502).json({ error: e.message }); }
+});
+
+app.get("/api/quotes", async (req, res) => {
+  const symbols = (req.query.symbols || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+  try { res.json(await quotes.getQuotes(symbols)); }
+  catch (e) { console.error("quotes error:", e.message); res.status(502).json({ error: e.message }); }
+});
 
 // ----------------------------------------------------------------------------
 // System prompt — turns the model into Atomic Capital's investment co-pilot.

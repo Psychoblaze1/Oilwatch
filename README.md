@@ -71,11 +71,17 @@ surfaces report that the key is missing.
 ## Stack
 
 - **Frontend**: React 18 UMD + Babel standalone + JSX modules — no build step.
-  The whole UI lives in `public/`. Market data is mocked in `public/data.js`,
-  shaped like a real quote feed (`startFeed()`) so a websocket / REST source can
-  drop in later without touching the views.
-- **Backend**: Node 18+ / Express. One file (`server/index.js`) + the Anthropic
-  SDK. The API key is read from `.env` and never reaches the browser.
+  The whole UI lives in `public/`. `public/data.js` paints instantly from a small
+  synthetic seed, then **hydrates with real prices** from the server and polls for
+  live updates (`startFeed()`); if the feed is unreachable it falls back to the
+  seed so the app still works offline.
+- **Backend**: Node 18+ / Express + the Anthropic SDK.
+  - `server/quotes.js` proxies **real market data** from Yahoo Finance (no API
+    key): live price, 90-day history and intraday for every ticker. JSE shares
+    (quoted in cents) are converted to Rand, and USD/ZAR is fetched live.
+  - `server/index.js` serves the app and the `/api/ai`, `/api/bootstrap` and
+    `/api/quotes` routes. The Anthropic key is read from `.env` and never reaches
+    the browser.
 
 ## Deploy (EC2 example)
 
@@ -101,14 +107,15 @@ surfaces report that the key is missing.
 
 4. Front it with nginx/ALB and terminate TLS there.
 
-## On the EasyEquities data
+## Data: what's real
 
-EasyEquities has **no public trading API**, so a prototype can't pull your real
-holdings live. The portfolio is realistic **mock data** in `public/data.js`,
-modelled on EasyEquities' USD + ZAR sub-account structure. The AI reasons over
-whatever is in that snapshot — so once a real feed (or a manual holdings import)
-populates it, the co-pilot is "checking your account" for real with no other
-changes. Wiring a live feed / import is the natural next step.
+- **Prices, history, FX — real.** Every quote, 90-day chart and the USD/ZAR rate
+  come live from Yahoo Finance via `server/quotes.js`.
+- **Holdings — your real positions, once synced.** EasyEquities has no public
+  trading API, so the *holdings* (which shares, how many, average cost) start as
+  a realistic sample. `AtomicData.setHoldings()` swaps in a real set; the
+  EasyEquities browser sync (below) populates it for real, after which the AI is
+  genuinely "checking your account."
 
 > AI output is research and education, **not** regulated financial advice. Verify
 > before you trade.
